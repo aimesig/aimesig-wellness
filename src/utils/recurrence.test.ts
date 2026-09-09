@@ -30,6 +30,7 @@ function createRoutine(
     ),
     endDate: null,
     active: true,
+    deletedAt: null,
     createdAt: Timestamp.now(),
     updatedAt: Timestamp.now(),
     ...overrides,

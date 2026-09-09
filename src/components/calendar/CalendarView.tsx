@@ -54,6 +54,32 @@ const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 interface DayItem {
   routine: Routine;
   log: RoutineLog | null;
+  isDeleted: boolean;
+}
+
+/**
+ * Stand-in Routine used only when a log references a routine that no
+ * longer has a Firestore document at all (routines deleted before this
+ * app started soft-deleting). Its actual title/settings are lost, so we
+ * label it generically, but the log itself is still shown and editable.
+ */
+function placeholderRoutine(log: RoutineLog): Routine {
+  return {
+    id: log.routineId,
+    title: "",
+    description: "",
+    frequency: "daily",
+    schedule: {},
+    alternateDay: false,
+    inputType: log.value != null ? "number" : "none",
+    unit: "",
+    startDate: log.date,
+    endDate: null,
+    active: false,
+    deletedAt: log.date,
+    createdAt: log.createdAt,
+    updatedAt: log.updatedAt,
+  };
 }
 
 export function CalendarView({ userId }: CalendarViewProps) {
@@ -80,7 +106,9 @@ export function CalendarView({ userId }: CalendarViewProps) {
         getCalendarProgress(userId, currentMonth.getFullYear(), currentMonth.getMonth()),
         getProgressInRange(userId, heatStart, new Date()),
         getStreakData(userId),
-        getRoutines(userId),
+        // Include deleted routines here — the day view needs their
+        // titles to label logs as "(deleted)" instead of losing them.
+        getRoutines(userId, { includeDeleted: true }),
       ]);
       setProgressMap(progress);
       setYearProgressMap(yearProgress);
@@ -107,17 +135,35 @@ export function CalendarView({ userId }: CalendarViewProps) {
       const date = dateFromKey(dateKey);
       const ts = toDayTimestamp(date);
 
-      const routines = allRoutines.length > 0 ? allRoutines : await getRoutines(userId);
+      const routines = allRoutines.length > 0 ? allRoutines : await getRoutines(userId, { includeDeleted: true });
       if (allRoutines.length === 0) setAllRoutines(routines);
 
       const scheduled = getRoutinesForDate(routines, date);
       const logs = await getRoutineLogsForDate(userId, ts);
       const logMap = new Map(logs.map((l) => [l.routineId, l]));
+      const routineById = new Map(routines.map((r) => [r.id, r]));
 
       const items: DayItem[] = scheduled.map((r) => ({
         routine: r,
         log: logMap.get(r.id) ?? null,
+        isDeleted: false,
       }));
+
+      // Any log for this day should show, even if the routine wasn't
+      // "scheduled" today by its recurrence rule (e.g. logged manually via
+      // "Log Today" with a different date picked) — or if the routine has
+      // since been deleted. Only skip logs already covered by `scheduled`.
+      const scheduledIds = new Set(scheduled.map((r) => r.id));
+      for (const log of logs) {
+        if (scheduledIds.has(log.routineId)) continue;
+        const matched = routineById.get(log.routineId);
+        const isDeletedRoutine = !matched || matched.deletedAt != null;
+        items.push({
+          routine: matched ?? placeholderRoutine(log),
+          log,
+          isDeleted: isDeletedRoutine,
+        });
+      }
 
       setDayItems(items);
     } catch (err) {
@@ -293,11 +339,12 @@ export function CalendarView({ userId }: CalendarViewProps) {
             <p className="text-sm text-[var(--text-muted)] py-2">No routines scheduled for this day.</p>
           ) : (
             <div className="mt-3 space-y-2">
-              {dayItems.map(({ routine, log }) => (
+              {dayItems.map(({ routine, log, isDeleted }) => (
                 <DayRoutineRow
                   key={routine.id}
                   routine={routine}
                   log={log}
+                  isDeleted={isDeleted}
                   onEdit={() => setEditingRoutine(routine)}
                 />
               ))}
@@ -355,7 +402,7 @@ export function CalendarView({ userId }: CalendarViewProps) {
 
 // ─── Day routine row ────────────────────────────────────────────────────────
 
-function DayRoutineRow({ routine, log, onEdit }: { routine: Routine; log: RoutineLog | null; onEdit: () => void }) {
+function DayRoutineRow({ routine, log, isDeleted, onEdit }: { routine: Routine; log: RoutineLog | null; isDeleted: boolean; onEdit: () => void }) {
   const status = log?.status ?? "pending";
 
   const statusStyle =
@@ -363,12 +410,16 @@ function DayRoutineRow({ routine, log, onEdit }: { routine: Routine; log: Routin
     status === "no"  ? { dot: "bg-[var(--danger)]",   label: "text-[var(--danger)]",   text: "Missed" } :
                        { dot: "bg-[var(--border-strong)]",   label: "text-[var(--text-faint)]",  text: "Pending" };
 
+  const displayTitle = isDeleted
+    ? routine.title ? `${routine.title} (deleted)` : "(deleted)"
+    : routine.title;
+
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-[var(--bg)] px-3 py-3">
+    <div className={`flex items-start gap-3 rounded-xl bg-[var(--bg)] px-3 py-3 ${isDeleted ? "opacity-70" : ""}`}>
       <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${statusStyle.dot}`} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-[var(--text-secondary)] truncate">{routine.title}</span>
+          <span className="text-sm font-semibold text-[var(--text-secondary)] truncate">{displayTitle}</span>
           {routine.inputType === "number" && log?.value != null && (
             <span className="shrink-0 rounded-full bg-[var(--accent-yellow-soft)] px-2 py-0.5 text-xs font-bold text-[var(--accent-pink)]">
               {log.value}{routine.unit ? ` ${routine.unit}` : ""}

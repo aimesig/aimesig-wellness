@@ -471,10 +471,14 @@ function GoalSummary({
     const cur = new Date(periodStart);
     while (cur <= today) {
       const key = toDateKey(cur);
+      const log = logMap.get(key);
+      // A log always counts for its day, even if the routine's recurrence
+      // rule doesn't schedule it that day (e.g. backfilled/logged manually
+      // via "Log Today" with a different date picked).
       const scheduled = allRoutines.every((r) => r.id !== routine.id) ||
-        getRoutinesForDate([routine], cur).length > 0;
+        getRoutinesForDate([routine], cur).length > 0 ||
+        !!log;
       if (scheduled) {
-        const log = logMap.get(key);
         if (log?.status === "yes") periodActual++;
       }
       cur.setDate(cur.getDate() + 1);
@@ -631,11 +635,14 @@ function YesNoHeatmap({
     const key = toDateKey(date);
     if (key > todayKey) return { key, date, status: "future" };
 
-    const isScheduled = getRoutinesForDate([routine], date).length > 0;
+    const log = logMap.get(key);
+    // A day with an actual log always counts, even if the routine's
+    // recurrence rule wouldn't normally schedule it that day (e.g.
+    // backfilled/logged manually via "Log Today" with a different date).
+    const isScheduled = getRoutinesForDate([routine], date).length > 0 || !!log;
     if (!isScheduled) return { key, date, status: "unscheduled" };
 
     scheduledCount++;
-    const log = logMap.get(key);
     // pending until yesterday = no
     const status = log?.status === "yes" ? "yes" : "no";
     if (status === "yes") yesCount++;
@@ -723,7 +730,7 @@ function YesNoHeatmap({
         </span>
         <span className="text-[var(--success)] font-medium">{yesCount} yes</span>
         <span className="text-[var(--danger)] font-medium">{noCount} no</span>
-        <span>{scheduledCount} scheduled</span>
+        <span>{scheduledCount} counted</span>
       </div>
 
       <div className="overflow-x-auto">

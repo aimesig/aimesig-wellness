@@ -204,11 +204,18 @@ export function RoutineLogPanel({
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
       <div className="mb-5">
         <h3 className="text-lg font-bold text-[var(--text-primary)]">
-          {routine.title}
+          {routine.title || "(deleted)"}
+          {routine.deletedAt && (
+            <span className="ml-2 rounded-full bg-[var(--danger-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--danger)] align-middle">
+              deleted
+            </span>
+          )}
         </h3>
 
         <p className="mt-1 text-sm text-[var(--text-muted)]">
-          Record your routine status and remarks.
+          {routine.deletedAt
+            ? "This routine has been deleted, but you can still view and edit its log."
+            : "Record your routine status and remarks."}
         </p>
       </div>
 

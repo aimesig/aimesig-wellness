@@ -38,6 +38,13 @@ export interface Routine {
   startDate: Timestamp;
   endDate: Timestamp | null;
   active: boolean;
+  /**
+   * Set when the routine is deleted. Routines are soft-deleted (never
+   * removed from Firestore) so that past logs can still be attributed to
+   * their original routine, shown as "(deleted)", and edited.
+   * `null` for routines that have never been deleted.
+   */
+  deletedAt: Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
