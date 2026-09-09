@@ -11,11 +11,18 @@ export type RoutineInputType = "none" | "number";
 
 export type RoutineStatus = "pending" | "yes" | "no";
 
+export interface YearDate {
+  month: number; // 1–12
+  day: number;   // 1–31
+}
+
 export interface RoutineSchedule {
   weekdays?: number[];
   monthDay?: number;
+  monthDays?: number[];   // multi-select for monthly
   yearMonth?: number;
   yearDay?: number;
+  yearDates?: YearDate[]; // multi-select for yearly
   selectedDates?: Timestamp[];
 }
 

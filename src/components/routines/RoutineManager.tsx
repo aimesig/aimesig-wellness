@@ -11,9 +11,12 @@ import {
 } from "lucide-react";
 import { Timestamp } from "firebase/firestore";
 
-import type { Routine } from "../../types/routine";
+import type { Routine, YearDate } from "../../types/routine";
 import { DateMultiSelect } from "../calendar/DateMultiSelect";
 import { RoutineLogPanel } from "./RoutineLogPanel";
+import { WeekdaySelect } from "./WeekdaySelect";
+import { MonthDayMultiSelect } from "./MonthDayMultiSelect";
+import { YearDateMultiSelect } from "./YearDateMultiSelect";
 import {
   createRoutine,
   deleteRoutine,
@@ -36,6 +39,9 @@ interface RoutineForm {
   endDate: string;
   active: boolean;
   selectedDates: Timestamp[];
+  weekdays: number[];
+  monthDays: number[];
+  yearDates: YearDate[];
 }
 
 const emptyForm: RoutineForm = {
@@ -48,6 +54,9 @@ const emptyForm: RoutineForm = {
   endDate: "",
   active: true,
   selectedDates: [],
+  weekdays: [],
+  monthDays: [],
+  yearDates: [],
 };
 
 export function RoutineManager({
@@ -114,8 +123,10 @@ setForm({
         .split("T")[0]
     : "",
   active: routine.active,
-  selectedDates:
-    routine.schedule.selectedDates ?? [],
+  selectedDates: routine.schedule.selectedDates ?? [],
+  weekdays: routine.schedule.weekdays ?? [],
+  monthDays: routine.schedule.monthDays ?? [],
+  yearDates: routine.schedule.yearDates ?? [],
 });
 
     setError("");
@@ -144,18 +155,26 @@ setForm({
         )
       : null;
 
+    const schedule = (() => {
+      switch (form.frequency) {
+        case "weekly":
+          return { weekdays: form.weekdays };
+        case "monthly":
+          return { monthDays: form.monthDays };
+        case "yearly":
+          return { yearDates: form.yearDates };
+        case "selectedDates":
+          return { selectedDates: form.selectedDates };
+        default:
+          return {};
+      }
+    })();
+
     return {
       title: form.title.trim(),
       description: form.description.trim(),
       frequency: form.frequency,
-      schedule:
-      form.frequency === "selectedDates"
-        ? {
-            selectedDates:
-              form.selectedDates,
-          }
-        : {},
-        
+      schedule,
       alternateDay: false,
       inputType: form.inputType,
       unit: form.unit.trim(),
@@ -390,7 +409,43 @@ setForm({
               </select>
             </div>
 
-            {/* ADD IT HERE */}
+            {/* Weekly — multi weekday select */}
+            {form.frequency === "weekly" && (
+              <div className="md:col-span-2">
+                <WeekdaySelect
+                  selectedWeekdays={form.weekdays}
+                  onChange={(weekdays) =>
+                    setForm((current) => ({ ...current, weekdays }))
+                  }
+                />
+              </div>
+            )}
+
+            {/* Monthly — multi day-of-month select */}
+            {form.frequency === "monthly" && (
+              <div className="md:col-span-2">
+                <MonthDayMultiSelect
+                  selectedDays={form.monthDays}
+                  onChange={(monthDays) =>
+                    setForm((current) => ({ ...current, monthDays }))
+                  }
+                />
+              </div>
+            )}
+
+            {/* Yearly — multi month+day select */}
+            {form.frequency === "yearly" && (
+              <div className="md:col-span-2">
+                <YearDateMultiSelect
+                  selectedDates={form.yearDates}
+                  onChange={(yearDates) =>
+                    setForm((current) => ({ ...current, yearDates }))
+                  }
+                />
+              </div>
+            )}
+
+            {/* Selected Dates — arbitrary date picker */}
             {form.frequency === "selectedDates" && (
               <div className="md:col-span-2">
                 <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -623,6 +678,36 @@ setForm({
                   <p className="mt-1 font-semibold capitalize text-slate-700">
                     {routine.frequency}
                   </p>
+
+                  {routine.frequency === "weekly" &&
+                    routine.schedule.weekdays &&
+                    routine.schedule.weekdays.length > 0 && (
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {routine.schedule.weekdays
+                          .map((d) => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d])
+                          .join(", ")}
+                      </p>
+                    )}
+
+                  {routine.frequency === "monthly" &&
+                    routine.schedule.monthDays &&
+                    routine.schedule.monthDays.length > 0 && (
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        Day {routine.schedule.monthDays.join(", ")}
+                      </p>
+                    )}
+
+                  {routine.frequency === "yearly" &&
+                    routine.schedule.yearDates &&
+                    routine.schedule.yearDates.length > 0 && (
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {routine.schedule.yearDates
+                          .map((yd) =>
+                            `${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][yd.month - 1]} ${yd.day}`
+                          )
+                          .join(", ")}
+                      </p>
+                    )}
                 </div>
 
                 <div className="rounded-xl bg-slate-50 p-3">

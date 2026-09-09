@@ -30,6 +30,7 @@ import {
 interface ProfileViewProps {
   userId: string;
   userName: string;
+  onNameChange?: (name: string) => void;
 }
 
 const EMPTY_PROFILE: FitnessProfile = {
@@ -67,7 +68,7 @@ const HEALTH_CONDITIONS_LIST = [
   "Thyroid Disorder", "PCOS", "Arthritis", "Back Pain", "None",
 ];
 
-export function ProfileView({ userId, userName }: ProfileViewProps) {
+export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps) {
   const [profile, setProfile] = useState<FitnessProfile | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<FitnessProfile>(EMPTY_PROFILE);
@@ -113,6 +114,7 @@ export function ProfileView({ userId, userName }: ProfileViewProps) {
       setEditing(false);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
+      if (draft.name) onNameChange?.(draft.name);
     } catch {
       setError("Failed to save profile. Please try again.");
     } finally {

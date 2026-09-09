@@ -17,7 +17,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { collection, getDocs, query, where, Timestamp, doc, setDoc, deleteDoc, getDoc } from "firebase/firestore";
+import { collection, getDocs, query, where, Timestamp, doc, setDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { getRoutines } from "../../services/routineService";
 import { getRoutinesForDate } from "../../utils/recurrence";
@@ -27,13 +27,6 @@ import type { Routine, RoutineLog } from "../../types/routine";
 
 type GoalPeriod = "weekly" | "monthly" | "yearly";
 type HeatmapRange = "7d" | "30d" | "3m" | "1y" | "lifetime";
-
-interface RoutineGoal {
-  routineId: string;
-  period: GoalPeriod;
-  target: number; // for number-type: numeric goal; for yes/no: target days per period
-  createdAt: string;
-}
 
 interface AnalyticsCard {
   id: string; // card id stored in firestore
@@ -448,7 +441,6 @@ function GoalSummary({
   allRoutines: Routine[];
 }) {
   const today = toDayStart(new Date());
-  const todayKey = toDateKey(today);
 
   // Compute period window
   const getPeriodStart = (period: GoalPeriod) => {
@@ -586,7 +578,7 @@ function NumberLineChart({
               tickFormatter={(v) => unit ? `${v}${unit}` : String(v)}
             />
             <Tooltip
-              formatter={(v: number) => [`${v}${unit ? ` ${unit}` : ""}`, "Actual"]}
+              formatter={(v) => [`${v ?? ""}${unit ? ` ${unit}` : ""}`, "Actual"]}
               contentStyle={{ borderRadius: 10, border: "1px solid #e0e8e1", fontSize: 12 }}
             />
             <ReferenceLine
@@ -616,7 +608,7 @@ function NumberLineChart({
 function YesNoHeatmap({
   logs,
   routine,
-  allRoutines,
+  allRoutines: _allRoutines,
   range,
 }: {
   logs: RoutineLog[];

@@ -170,20 +170,22 @@ function matchesMonthly(
   routine: Routine,
   dateParts: DateParts,
 ): boolean {
-  const monthDay =
-    routine.schedule.monthDay;
+  const { monthDays, monthDay } = routine.schedule;
 
-  if (
-    monthDay === undefined ||
-    monthDay === null
-  ) {
-    return (
-      dateParts.day ===
-      timestampToDate(routine.startDate).getDate()
-    );
+  // Multi-select: array of days
+  if (monthDays && monthDays.length > 0) {
+    return monthDays.includes(dateParts.day);
   }
 
-  return dateParts.day === monthDay;
+  // Legacy single day
+  if (monthDay !== undefined && monthDay !== null) {
+    return dateParts.day === monthDay;
+  }
+
+  return (
+    dateParts.day ===
+    timestampToDate(routine.startDate).getDate()
+  );
 }
 
 /**
@@ -202,20 +204,23 @@ function matchesYearly(
   routine: Routine,
   dateParts: DateParts,
 ): boolean {
-  const startDate =
-    timestampToDate(routine.startDate);
+  const { yearDates, yearMonth, yearDay } = routine.schedule;
 
-  const yearMonth =
-    routine.schedule.yearMonth ??
-    startDate.getMonth() + 1;
+  // Multi-select: array of {month, day} pairs
+  if (yearDates && yearDates.length > 0) {
+    return yearDates.some(
+      (yd) => yd.month === dateParts.month && yd.day === dateParts.day,
+    );
+  }
 
-  const yearDay =
-    routine.schedule.yearDay ??
-    startDate.getDate();
+  // Legacy single date
+  const startDate = timestampToDate(routine.startDate);
+  const resolvedMonth = yearMonth ?? startDate.getMonth() + 1;
+  const resolvedDay = yearDay ?? startDate.getDate();
 
   return (
-    dateParts.month === yearMonth &&
-    dateParts.day === yearDay
+    dateParts.month === resolvedMonth &&
+    dateParts.day === resolvedDay
   );
 }
 

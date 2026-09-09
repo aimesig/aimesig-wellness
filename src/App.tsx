@@ -27,6 +27,7 @@ import { getRoutines } from "./services/routineService";
 import { getRoutineLog, saveRoutineLog } from "./services/routineLogService";
 import { getRoutinesForDate } from "./utils/recurrence";
 import { getStreakData } from "./services/streakService";
+import { getProfile } from "./services/profileService";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -93,10 +94,18 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
   const { logout } = useAuth();
   const [tab, setTab] = useState<NavTab>("Home");
   const [streak, setStreak] = useState<number | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
 
   useEffect(() => {
     getStreakData(userId).then((s) => setStreak(s.currentStreak)).catch(() => {});
+    getProfile(userId)
+      .then((p) => setDisplayName(p?.name?.trim() || userName))
+      .catch(() => setDisplayName(userName));
   }, [userId]);
+
+  const handleNameChange = useCallback((name: string) => {
+    setDisplayName(name);
+  }, []);
 
   async function handleLogout() {
     try { await logout(); } catch (e) { console.error(e); }
@@ -129,11 +138,11 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
         return (
           <>
             <PageHeader title="Profile" subtitle="Your goals and settings" />
-            <ProfileView userId={userId} userName={userName} />
+            <ProfileView userId={userId} userName={displayName ?? userName} onNameChange={handleNameChange} />
           </>
         );
       default:
-        return <HomeView userId={userId} userName={userName} streak={streak} />;
+        return <HomeView userId={userId} userName={displayName} streak={streak} />;
     }
   }
 
@@ -208,7 +217,7 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
 
 // ─── home: today's routines ────────────────────────────────────────────────
 
-function HomeView({ userId, userName, streak }: { userId: string; userName: string; streak: number | null }) {
+function HomeView({ userId, userName, streak }: { userId: string; userName: string | null; streak: number | null }) {
   const today = new Date();
   const hour = today.getHours();
   const greeting = hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : "Evening";
@@ -251,7 +260,12 @@ function HomeView({ userId, userName, streak }: { userId: string; userName: stri
           {today.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}
         </p>
         <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#17211b]">
-          {greeting}, {userName}
+          {greeting},{" "}
+          {userName === null ? (
+            <span className="inline-block h-6 w-32 animate-pulse rounded-md bg-[#e0e8e1]" />
+          ) : (
+            userName
+          )}
         </h1>
         {total > 0 && (
           <p className="mt-1 text-sm text-[#7a877e]">

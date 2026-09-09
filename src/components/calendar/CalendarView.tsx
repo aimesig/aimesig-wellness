@@ -6,18 +6,34 @@ import {
   Trophy,
   CalendarDays,
   Zap,
+  Pencil,
+  X,
 } from "lucide-react";
 import { getCalendarProgress, getStreakData, type DayProgress, type StreakData } from "../../services/streakService";
 import { Timestamp } from "firebase/firestore";
 import { getRoutineLogsForDate } from "../../services/routineLogService";
 import { getRoutines } from "../../services/routineService";
+import { getRoutinesForDate } from "../../utils/recurrence";
+import { RoutineLogPanel } from "../routines/RoutineLogPanel";
+import type { Routine, RoutineLog } from "../../types/routine";
 
 interface CalendarViewProps {
   userId: string;
 }
 
+function toDayTimestamp(date: Date): Timestamp {
+  return Timestamp.fromDate(
+    new Date(date.getFullYear(), date.getMonth(), date.getDate()),
+  );
+}
+
 function toDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function dateFromKey(key: string): Date {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
 function getProgressColorStyle(percent: number): string {
@@ -35,64 +51,99 @@ const MONTH_NAMES = [
 ];
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+interface DayItem {
+  routine: Routine;
+  log: RoutineLog | null;
+}
+
 export function CalendarView({ userId }: CalendarViewProps) {
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [progressMap, setProgressMap] = useState<Map<string, DayProgress>>(new Map());
   const [streakData, setStreakData] = useState<StreakData | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(toDateKey(today));
-  const [dayDetail, setDayDetail] = useState<{ logs: { title: string; status: string }[] } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [dayItems, setDayItems] = useState<DayItem[] | null>(null);
+  const [dayLoading, setDayLoading] = useState(false);
+  const [calLoading, setCalLoading] = useState(true);
+  const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
+  const [allRoutines, setAllRoutines] = useState<Routine[]>([]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadCalendar = useCallback(async () => {
+    setCalLoading(true);
     try {
-      const [progress, streak] = await Promise.all([
+      const [progress, streak, routines] = await Promise.all([
         getCalendarProgress(userId, currentMonth.getFullYear(), currentMonth.getMonth()),
         getStreakData(userId),
+        getRoutines(userId),
       ]);
       setProgressMap(progress);
       setStreakData(streak);
+      setAllRoutines(routines);
     } catch (err) {
       console.error("Failed to load calendar data:", err);
     } finally {
-      setLoading(false);
+      setCalLoading(false);
     }
   }, [userId, currentMonth]);
 
-  useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(() => { void loadCalendar(); }, [loadCalendar]);
 
-  async function handleDayClick(dateKey: string) {
-    setSelectedDay(dateKey);
-    const [y, m, d] = dateKey.split("-").map(Number);
-    const date = new Date(y, m - 1, d);
-    const ts = Timestamp.fromDate(date);
+  // Load today's items on first render
+  useEffect(() => {
+    if (selectedDay) void loadDayItems(selectedDay);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadDayItems(dateKey: string) {
+    setDayLoading(true);
+    setDayItems(null);
     try {
-      const [logs, routines] = await Promise.all([
-        getRoutineLogsForDate(userId, ts),
-        getRoutines(userId),
-      ]);
-      const routineMap = new Map(routines.map((r) => [r.id, r.title]));
-      const items = logs.map((log) => ({
-        title: routineMap.get(log.routineId) ?? "Unknown",
-        status: log.status,
+      const date = dateFromKey(dateKey);
+      const ts = toDayTimestamp(date);
+
+      const routines = allRoutines.length > 0 ? allRoutines : await getRoutines(userId);
+      if (allRoutines.length === 0) setAllRoutines(routines);
+
+      const scheduled = getRoutinesForDate(routines, date);
+      const logs = await getRoutineLogsForDate(userId, ts);
+      const logMap = new Map(logs.map((l) => [l.routineId, l]));
+
+      const items: DayItem[] = scheduled.map((r) => ({
+        routine: r,
+        log: logMap.get(r.id) ?? null,
       }));
-      setDayDetail({ logs: items });
-    } catch {
-      setDayDetail({ logs: [] });
+
+      setDayItems(items);
+    } catch (err) {
+      console.error("Failed to load day items:", err);
+      setDayItems([]);
+    } finally {
+      setDayLoading(false);
     }
+  }
+
+  function handleDayClick(dateKey: string) {
+    setSelectedDay(dateKey);
+    setEditingRoutine(null);
+    void loadDayItems(dateKey);
+  }
+
+  function handleEditSaved() {
+    setEditingRoutine(null);
+    if (selectedDay) void loadDayItems(selectedDay);
   }
 
   function prevMonth() {
     setCurrentMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1));
     setSelectedDay(null);
-    setDayDetail(null);
+    setDayItems(null);
+    setEditingRoutine(null);
   }
 
   function nextMonth() {
     setCurrentMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1));
     setSelectedDay(null);
-    setDayDetail(null);
+    setDayItems(null);
+    setEditingRoutine(null);
   }
 
   const firstDay = currentMonth.getDay();
@@ -106,11 +157,11 @@ export function CalendarView({ userId }: CalendarViewProps) {
   const todayKey = toDateKey(today);
   const selectedProgress = selectedDay ? progressMap.get(selectedDay) : undefined;
 
-  // Year heatmap (last 52 weeks)
+  // Year heatmap (last 53 weeks)
   const heatmapWeeks: { key: string; date: Date }[][] = [];
   const heatStart = new Date(today);
   heatStart.setDate(heatStart.getDate() - 364);
-  heatStart.setDate(heatStart.getDate() - heatStart.getDay()); // align to Sunday
+  heatStart.setDate(heatStart.getDate() - heatStart.getDay());
   let curr = new Date(heatStart);
   for (let w = 0; w < 53; w++) {
     const week: { key: string; date: Date }[] = [];
@@ -121,34 +172,15 @@ export function CalendarView({ userId }: CalendarViewProps) {
     heatmapWeeks.push(week);
   }
 
+  const selectedDate = selectedDay ? dateFromKey(selectedDay) : null;
+
   return (
     <div className="space-y-6">
       {/* Streak Cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StreakCard
-          label="Current Streak"
-          value={streakData ? `${streakData.currentStreak}d` : "—"}
-          icon={<Flame size={18} />}
-          highlight={streakData ? streakData.currentStreak > 0 : false}
-          color="text-orange-500"
-          bg="bg-orange-50 border-orange-200"
-        />
-        <StreakCard
-          label="Longest Streak"
-          value={streakData ? `${streakData.longestStreak}d` : "—"}
-          icon={<Trophy size={18} />}
-          highlight={false}
-          color="text-amber-500"
-          bg="bg-amber-50 border-amber-200"
-        />
-        <StreakCard
-          label="Active Days"
-          value={streakData ? `${streakData.activeDatesThisYear.size}` : "—"}
-          icon={<CalendarDays size={18} />}
-          highlight={false}
-          color="text-blue-500"
-          bg="bg-blue-50 border-blue-200"
-        />
+        <StreakCard label="Current Streak" value={streakData ? `${streakData.currentStreak}d` : "—"} icon={<Flame size={18} />} highlight={streakData ? streakData.currentStreak > 0 : false} color="text-orange-500" bg="bg-orange-50 border-orange-200" />
+        <StreakCard label="Longest Streak" value={streakData ? `${streakData.longestStreak}d` : "—"} icon={<Trophy size={18} />} highlight={false} color="text-amber-500" bg="bg-amber-50 border-amber-200" />
+        <StreakCard label="Active Days" value={streakData ? `${streakData.activeDatesThisYear.size}` : "—"} icon={<CalendarDays size={18} />} highlight={false} color="text-blue-500" bg="bg-blue-50 border-blue-200" />
         <StreakCard
           label="Last Active"
           value={streakData?.lastActiveDate
@@ -164,55 +196,37 @@ export function CalendarView({ userId }: CalendarViewProps) {
       {/* Monthly Calendar */}
       <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm sm:p-6">
         <div className="mb-5 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={prevMonth}
-            className="rounded-xl p-2 text-[#627067] transition hover:bg-[#f3f6f3]"
-          >
+          <button type="button" onClick={prevMonth} className="rounded-xl p-2 text-[#627067] transition hover:bg-[#f3f6f3]">
             <ChevronLeft size={20} />
           </button>
-
           <h2 className="text-lg font-bold text-[#17211b]">
             {MONTH_NAMES[currentMonth.getMonth()]} {currentMonth.getFullYear()}
           </h2>
-
-          <button
-            type="button"
-            onClick={nextMonth}
-            className="rounded-xl p-2 text-[#627067] transition hover:bg-[#f3f6f3]"
-            disabled={currentMonth >= new Date(today.getFullYear(), today.getMonth(), 1)}
-          >
+          <button type="button" onClick={nextMonth} className="rounded-xl p-2 text-[#627067] transition hover:bg-[#f3f6f3]" disabled={currentMonth >= new Date(today.getFullYear(), today.getMonth(), 1)}>
             <ChevronRight size={20} />
           </button>
         </div>
 
-        {/* Day labels */}
         <div className="grid grid-cols-7 gap-1 mb-2">
           {DAY_LABELS.map((d) => (
-            <div key={d} className="text-center text-xs font-semibold text-[#8a9590]">
-              {d}
-            </div>
+            <div key={d} className="text-center text-xs font-semibold text-[#8a9590]">{d}</div>
           ))}
         </div>
 
-        {/* Calendar grid */}
-        {loading ? (
+        {calLoading ? (
           <div className="flex justify-center py-10">
             <span className="h-6 w-6 animate-spin rounded-full border-2 border-[#d1e5d3] border-t-[#315c3d]" />
           </div>
         ) : (
           <div className="grid grid-cols-7 gap-1">
             {cells.map((day, i) => {
-              if (!day) {
-                return <div key={`empty-${i}`} />;
-              }
+              if (!day) return <div key={`empty-${i}`} />;
               const dateKey = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
               const progress = progressMap.get(dateKey);
               const percent = progress?.percent ?? 0;
               const isToday = dateKey === todayKey;
               const isSelected = dateKey === selectedDay;
               const isFuture = dateKey > todayKey;
-
               return (
                 <button
                   key={dateKey}
@@ -220,36 +234,20 @@ export function CalendarView({ userId }: CalendarViewProps) {
                   onClick={() => !isFuture && handleDayClick(dateKey)}
                   disabled={isFuture}
                   title={progress ? `${percent}% complete` : ""}
-                  className={`
-                    relative flex flex-col items-center justify-center rounded-xl p-1 pt-1.5 pb-1
-                    text-xs font-semibold transition
-                    ${isFuture ? "cursor-default opacity-30" : "cursor-pointer hover:ring-2 hover:ring-[#315c3d]/30"}
-                    ${isSelected ? "ring-2 ring-[#315c3d]" : ""}
-                    ${isToday ? "font-extrabold" : ""}
-                  `}
+                  className={`relative flex flex-col items-center justify-center rounded-xl p-1 pt-1.5 pb-1 text-xs font-semibold transition ${isFuture ? "cursor-default opacity-30" : "cursor-pointer hover:ring-2 hover:ring-[#315c3d]/30"} ${isSelected ? "ring-2 ring-[#315c3d]" : ""} ${isToday ? "font-extrabold" : ""}`}
                 >
-                  <span className={`mb-1 ${isToday ? "text-[#315c3d]" : "text-[#3a4a3f]"}`}>
-                    {day}
-                  </span>
-                  <span
-                    className="h-5 w-5 rounded-md transition-all duration-300"
-                    style={{ backgroundColor: isFuture ? "#ebedf0" : getProgressColorStyle(percent) }}
-                  />
+                  <span className={`mb-1 ${isToday ? "text-[#315c3d]" : "text-[#3a4a3f]"}`}>{day}</span>
+                  <span className="h-5 w-5 rounded-md transition-all duration-300" style={{ backgroundColor: isFuture ? "#ebedf0" : getProgressColorStyle(percent) }} />
                 </button>
               );
             })}
           </div>
         )}
 
-        {/* Legend */}
         <div className="mt-4 flex items-center gap-2 text-xs text-[#7a877e]">
           <span>Less</span>
           {[0, 20, 45, 70, 90, 100].map((p) => (
-            <span
-              key={p}
-              className="h-3.5 w-3.5 rounded-sm"
-              style={{ backgroundColor: getProgressColorStyle(p) }}
-            />
+            <span key={p} className="h-3.5 w-3.5 rounded-sm" style={{ backgroundColor: getProgressColorStyle(p) }} />
           ))}
           <span>More</span>
           <span className="ml-2 rounded-sm h-3.5 w-3.5 bg-[#22c55e]" />
@@ -258,59 +256,60 @@ export function CalendarView({ userId }: CalendarViewProps) {
       </div>
 
       {/* Selected Day Detail */}
-      {selectedDay && (
+      {selectedDay && selectedDate && (
         <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm sm:p-6">
           <h3 className="font-bold text-[#17211b] mb-1">
-            {new Date(selectedDay + "T00:00:00").toLocaleDateString("en", {
-              weekday: "long", month: "long", day: "numeric",
-            })}
+            {selectedDate.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
           </h3>
 
-          {selectedProgress ? (
-            <div className="mb-4">
-              <div className="flex items-center gap-3 mb-2">
+          {selectedProgress && (
+            <div className="mb-4 mt-2">
+              <div className="flex items-center gap-3 mb-1">
                 <div className="flex-1 rounded-full bg-[#edf4ee] h-2">
-                  <div
-                    className="h-2 rounded-full transition-all"
-                    style={{
-                      width: `${selectedProgress.percent}%`,
-                      backgroundColor: getProgressColorStyle(selectedProgress.percent),
-                    }}
-                  />
+                  <div className="h-2 rounded-full transition-all" style={{ width: `${selectedProgress.percent}%`, backgroundColor: getProgressColorStyle(selectedProgress.percent) }} />
                 </div>
-                <span className="text-sm font-bold text-[#315c3d]">
-                  {selectedProgress.percent}%
-                </span>
+                <span className="text-sm font-bold text-[#315c3d]">{selectedProgress.percent}%</span>
               </div>
-              <p className="text-xs text-[#7a877e]">
-                {selectedProgress.completedCount} of {selectedProgress.totalCount} routines completed
-              </p>
+              <p className="text-xs text-[#7a877e]">{selectedProgress.completedCount} of {selectedProgress.totalCount} routines completed</p>
             </div>
-          ) : (
-            <p className="text-sm text-[#8a9590] mb-4">No routines logged this day.</p>
           )}
 
-          {dayDetail && dayDetail.logs.length > 0 && (
-            <div className="space-y-2">
-              {dayDetail.logs.map((log, i) => (
-                <div key={i} className="flex items-center gap-3 rounded-xl bg-[#f5f8f5] px-3 py-2">
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      log.status === "yes" ? "bg-green-500" :
-                      log.status === "no" ? "bg-red-400" : "bg-gray-300"
-                    }`}
-                  />
-                  <span className="text-sm font-medium text-[#2d3d32]">{log.title}</span>
-                  <span className={`ml-auto text-xs font-semibold ${
-                    log.status === "yes" ? "text-green-600" :
-                    log.status === "no" ? "text-red-500" : "text-gray-400"
-                  }`}>
-                    {log.status === "yes" ? "Done" : log.status === "no" ? "Missed" : "Pending"}
-                  </span>
-                </div>
+          {dayLoading ? (
+            <div className="flex justify-center py-6">
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-[#d1e5d3] border-t-[#315c3d]" />
+            </div>
+          ) : dayItems === null ? null : dayItems.length === 0 ? (
+            <p className="text-sm text-[#8a9590] py-2">No routines scheduled for this day.</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {dayItems.map(({ routine, log }) => (
+                <DayRoutineRow
+                  key={routine.id}
+                  routine={routine}
+                  log={log}
+                  onEdit={() => setEditingRoutine(routine)}
+                />
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Edit panel — slide in when editing */}
+      {editingRoutine && selectedDate && (
+        <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-[#17211b]">Edit Log</h3>
+            <button type="button" onClick={() => setEditingRoutine(null)} className="rounded-lg p-1.5 text-[#627067] hover:bg-[#f3f6f3]">
+              <X size={18} />
+            </button>
+          </div>
+          <RoutineLogPanel
+            userId={userId}
+            routine={editingRoutine}
+            date={selectedDate}
+            onSaved={handleEditSaved}
+          />
         </div>
       )}
 
@@ -330,10 +329,7 @@ export function CalendarView({ userId }: CalendarViewProps) {
                       key={key}
                       title={`${date.toLocaleDateString("en", { month: "short", day: "numeric" })}${prog ? ` — ${pct}%` : ""}`}
                       className="h-3 w-3 rounded-sm cursor-default"
-                      style={{
-                        backgroundColor: isFut ? "transparent" :
-                          streakData?.activeDatesThisYear.has(key) ? getProgressColorStyle(pct) : "#ebedf0",
-                      }}
+                      style={{ backgroundColor: isFut ? "transparent" : streakData?.activeDatesThisYear.has(key) ? getProgressColorStyle(pct) : "#ebedf0" }}
                     />
                   );
                 })}
@@ -346,21 +342,50 @@ export function CalendarView({ userId }: CalendarViewProps) {
   );
 }
 
-function StreakCard({
-  label,
-  value,
-  icon,
-  highlight,
-  color,
-  bg,
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  highlight: boolean;
-  color: string;
-  bg: string;
-}) {
+// ─── Day routine row ────────────────────────────────────────────────────────
+
+function DayRoutineRow({ routine, log, onEdit }: { routine: Routine; log: RoutineLog | null; onEdit: () => void }) {
+  const status = log?.status ?? "pending";
+
+  const statusStyle =
+    status === "yes" ? { dot: "bg-green-500", label: "text-green-600", text: "Done" } :
+    status === "no"  ? { dot: "bg-red-400",   label: "text-red-500",   text: "Missed" } :
+                       { dot: "bg-gray-300",   label: "text-gray-400",  text: "Pending" };
+
+  return (
+    <div className="flex items-start gap-3 rounded-xl bg-[#f5f8f5] px-3 py-3">
+      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${statusStyle.dot}`} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-[#2d3d32] truncate">{routine.title}</span>
+          {routine.inputType === "number" && log?.value != null && (
+            <span className="shrink-0 rounded-full bg-[#e0ead1] px-2 py-0.5 text-xs font-bold text-[#315c3d]">
+              {log.value}{routine.unit ? ` ${routine.unit}` : ""}
+            </span>
+          )}
+        </div>
+        {log?.remark ? (
+          <p className="mt-0.5 text-xs text-[#7a877e] truncate">{log.remark}</p>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className={`text-xs font-semibold ${statusStyle.label}`}>{statusStyle.text}</span>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="rounded-lg p-1.5 text-[#627067] hover:bg-[#e8f0e9]"
+          title="Edit log"
+        >
+          <Pencil size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Streak card ────────────────────────────────────────────────────────────
+
+function StreakCard({ label, value, icon, highlight, color, bg }: { label: string; value: string; icon: React.ReactNode; highlight: boolean; color: string; bg: string }) {
   return (
     <div className={`rounded-2xl border p-4 shadow-sm ${bg} ${highlight ? "ring-2 ring-orange-300" : ""}`}>
       <div className={`mb-2 ${color}`}>{icon}</div>

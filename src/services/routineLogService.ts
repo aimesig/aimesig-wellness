@@ -3,7 +3,6 @@ import {
   collection,
   getDocs,
   limit,
-  orderBy,
   query,
   serverTimestamp,
   Timestamp,
@@ -102,7 +101,6 @@ export async function getRoutineLogsForDate(
   const logsQuery = query(
     routineLogsCollection(userId),
     where("date", "==", date),
-    orderBy("routineId"),
   );
 
   const snapshot = await getDocs(logsQuery);
