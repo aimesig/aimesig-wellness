@@ -170,7 +170,12 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
         return (
           <>
             <PageHeader title="Profile" subtitle="Your goals and settings" />
-            <ProfileView userId={userId} userName={displayName ?? userName} onNameChange={handleNameChange} />
+            <ProfileView
+              userId={userId}
+              userName={displayName ?? userName}
+              onNameChange={handleNameChange}
+              onSignOut={handleLogout}
+            />
           </>
         );
       default:
