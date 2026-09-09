@@ -17,7 +17,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { collection, getDocs, query, where, Timestamp, doc, setDoc, deleteDoc } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, setDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { getRoutines } from "../../services/routineService";
 import { getRoutinesForDate } from "../../utils/recurrence";
@@ -70,21 +70,6 @@ function getRangeDays(range: HeatmapRange): Date[] {
 }
 
 // ─── data fetching ─────────────────────────────────────────────────────────
-
-async function fetchLogsForRoutine(
-  userId: string,
-  routineId: string,
-  from: Date,
-): Promise<RoutineLog[]> {
-  const ref = collection(db, "users", userId, "routineLogs");
-  const q = query(
-    ref,
-    where("routineId", "==", routineId),
-    where("date", ">=", Timestamp.fromDate(from)),
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as RoutineLog));
-}
 
 async function fetchAllLogs(userId: string, routineId: string): Promise<RoutineLog[]> {
   const ref = collection(db, "users", userId, "routineLogs");
@@ -344,10 +329,7 @@ function RoutineAnalyticsCard({
     async function load() {
       setLoading(true);
       try {
-        const from = getRangeStart("lifetime");
-        const data = routine.inputType === "number"
-          ? await fetchLogsForRoutine(userId, routine.id, from)
-          : await fetchAllLogs(userId, routine.id);
+        const data = await fetchAllLogs(userId, routine.id);
         setLogs(data);
       } finally {
         setLoading(false);
@@ -533,7 +515,7 @@ function NumberLineChart({
 }) {
   // Build chart data from all number logs sorted by date
   const validLogs = logs
-    .filter((l) => l.status === "yes" && l.value != null)
+    .filter((l) => l.value != null && typeof l.value === "number" && Number.isFinite(l.value))
     .sort((a, b) => a.date.toDate().getTime() - b.date.toDate().getTime());
 
   const chartData = validLogs.map((l) => ({

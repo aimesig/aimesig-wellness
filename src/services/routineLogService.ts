@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   getDocs,
   limit,
   query,
@@ -92,6 +93,15 @@ export async function saveRoutineLog(
   });
 
   return logRef.id;
+}
+
+export async function deleteRoutineLog(
+  userId: string,
+  logId: string,
+): Promise<void> {
+  await deleteDoc(
+    doc(db, "users", userId, "routineLogs", logId),
+  );
 }
 
 export async function getRoutineLogsForDate(

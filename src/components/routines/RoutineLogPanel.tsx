@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, Check, Loader2, Save, X } from "lucide-react";
+import { CalendarDays, Check, Loader2, Save, Trash2, X } from "lucide-react";
 import { Timestamp } from "firebase/firestore";
 
 import type { Routine, RoutineStatus } from "../../types/routine";
 import {
+  deleteRoutineLog,
   getRoutineLog,
   saveRoutineLog,
 } from "../../services/routineLogService";
@@ -55,8 +56,11 @@ export function RoutineLogPanel({
   const [remark, setRemark] = useState("");
   const [value, setValue] = useState("");
 
+  const [existingLogId, setExistingLogId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -85,6 +89,7 @@ export function RoutineLogPanel({
         }
 
         if (log) {
+          setExistingLogId(log.id);
           setStatus(log.status);
           setRemark(log.remark ?? "");
 
@@ -94,6 +99,7 @@ export function RoutineLogPanel({
               : String(log.value),
           );
         } else {
+          setExistingLogId(null);
           setStatus("pending");
           setRemark("");
           setValue("");
@@ -132,6 +138,28 @@ export function RoutineLogPanel({
     setSelectedDate(event.target.value);
     setError("");
     setMessage("");
+  }
+
+  async function handleDelete() {
+    if (!existingLogId) return;
+    setError("");
+    setMessage("");
+    try {
+      setDeleting(true);
+      await deleteRoutineLog(userId, existingLogId);
+      setExistingLogId(null);
+      setStatus("pending");
+      setRemark("");
+      setValue("");
+      window.dispatchEvent(new CustomEvent("routine-log-saved", { detail: { routineId: routine.id, value: null } }));
+      setMessage("Log deleted successfully.");
+      onSaved?.();
+    } catch (err) {
+      console.error("Failed to delete routine log:", err);
+      setError("Unable to delete routine log.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function handleSave() {
@@ -361,24 +389,38 @@ export function RoutineLogPanel({
         />
       </div>
 
-      {/* Save */}
-      <button
-        type="button"
-        onClick={() => void handleSave()}
-        disabled={saving}
-        className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
-      >
-        {saving ? (
-          <Loader2
-            size={17}
-            className="animate-spin"
-          />
-        ) : (
-          <Save size={17} />
-        )}
+      {/* Actions */}
+      <div className="mt-5 flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={saving || deleting}
+          className="inline-flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {saving ? (
+            <Loader2 size={17} className="animate-spin" />
+          ) : (
+            <Save size={17} />
+          )}
+          {saving ? "Saving..." : "Save Log"}
+        </button>
 
-        {saving ? "Saving..." : "Save Log"}
-      </button>
+        {existingLogId && (
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            disabled={saving || deleting}
+            className="inline-flex items-center gap-2 rounded-xl border border-[var(--danger-soft)] bg-[var(--danger-soft)] px-5 py-3 text-sm font-semibold text-[var(--danger)] disabled:opacity-50 hover:bg-[var(--danger)] hover:text-white transition-colors"
+          >
+            {deleting ? (
+              <Loader2 size={17} className="animate-spin" />
+            ) : (
+              <Trash2 size={17} />
+            )}
+            {deleting ? "Deleting..." : "Delete Log"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
