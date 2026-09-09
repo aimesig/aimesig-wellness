@@ -6,12 +6,12 @@ import {
   LockKeyhole,
   Mail,
   ShieldCheck,
-  Sparkles,
   UserPlus,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
 import { useAuth } from "../../context/AuthContext";
+import aimesigLogo from "../../assets/aimesig-logo.png";
 
 type AuthMode = "login" | "register";
 
@@ -175,9 +175,11 @@ export default function AuthScreen() {
 
           <div className="relative">
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--bg-elevated)]/10">
-                <Sparkles size={21} />
-              </div>
+              <img
+                src={aimesigLogo}
+                alt="AimeSig logo"
+                className="h-11 w-11 shrink-0 object-contain"
+              />
 
               <div>
                 <p className="font-bold tracking-tight">
@@ -220,9 +222,11 @@ export default function AuthScreen() {
           <div className="w-full max-w-md">
             {/* Mobile brand */}
             <div className="mb-8 flex items-center gap-3 lg:hidden">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]">
-                <Sparkles size={21} />
-              </div>
+              <img
+                src={aimesigLogo}
+                alt="AimeSig logo"
+                className="h-11 w-11 shrink-0 object-contain"
+              />
 
               <div>
                 <p className="font-bold tracking-tight text-[var(--text-primary)]">

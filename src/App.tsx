@@ -8,7 +8,6 @@ import {
   Loader2,
   LogOut,
   Moon,
-  Sparkles,
   Sun,
   User,
   X,
@@ -32,6 +31,7 @@ import { getRoutinesForDate } from "./utils/recurrence";
 import { getStreakData } from "./services/streakService";
 import { getProfile } from "./services/profileService";
 import { getUserTheme, saveUserTheme } from "./services/themeService";
+import aimesigLogo from "./assets/aimesig-logo.png";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -593,9 +593,11 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className={`flex shrink-0 items-center justify-center rounded-xl bg-[var(--accent-pink-soft)] text-[var(--accent-pink)] ${compact ? "h-8 w-8" : "h-9 w-9"}`}>
-        <Sparkles size={compact ? 16 : 18} />
-      </div>
+      <img
+        src={aimesigLogo}
+        alt="AimeSig logo"
+        className={`shrink-0 object-contain ${compact ? "h-8 w-8" : "h-9 w-9"}`}
+      />
       <div className="leading-tight">
         <p className="font-bold text-[var(--text-primary)]">AimeSig</p>
         <p className="text-[10px] font-medium text-[var(--text-secondary)]">Wellness</p>
