@@ -9,6 +9,7 @@ import {
   Activity,
   Droplets,
   Moon,
+  Sun,
   Utensils,
   Heart,
   Edit3,
@@ -26,6 +27,8 @@ import {
   calculateTDEE,
   type FitnessProfile,
 } from "../../services/profileService";
+import { useTheme } from "../../context/ThemeContext";
+import { saveUserTheme } from "../../services/themeService";
 
 interface ProfileViewProps {
   userId: string;
@@ -69,6 +72,7 @@ const HEALTH_CONDITIONS_LIST = [
 ];
 
 export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps) {
+  const { theme, setTheme } = useTheme();
   const [profile, setProfile] = useState<FitnessProfile | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<FitnessProfile>(EMPTY_PROFILE);
@@ -128,6 +132,11 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
     setEditing(true);
   }
 
+  function handleThemeSelect(next: "light" | "dark") {
+    setTheme(next);
+    void saveUserTheme(userId, next);
+  }
+
   function update<K extends keyof FitnessProfile>(key: K, value: FitnessProfile[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
   }
@@ -158,7 +167,7 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
   if (loading) {
     return (
       <div className="flex justify-center py-20">
-        <span className="h-8 w-8 animate-spin rounded-full border-2 border-[#d1e5d3] border-t-[#315c3d]" />
+        <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent-pink)]" />
       </div>
     );
   }
@@ -172,14 +181,14 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
         {/* Header */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-bold text-[#17211b]">
+            <h2 className="text-xl font-bold text-[var(--text-primary)]">
               {profile ? "Edit Profile" : "Set Up Your Profile"}
             </h2>
             {profile && (
               <button
                 type="button"
                 onClick={() => setEditing(false)}
-                className="text-sm text-[#627067] hover:text-[#17211b] transition"
+                className="text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition"
               >
                 Cancel
               </button>
@@ -192,18 +201,18 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
               <div
                 key={s}
                 className={`flex-1 h-1.5 rounded-full transition-all ${
-                  i <= stepIdx ? "bg-[#315c3d]" : "bg-[#dde8de]"
+                  i <= stepIdx ? "bg-[var(--accent-pink)]" : "bg-[var(--border)]"
                 }`}
               />
             ))}
           </div>
-          <p className="text-sm font-semibold text-[#627067]">
+          <p className="text-sm font-semibold text-[var(--text-secondary)]">
             {stepIdx + 1} of {STEPS.length} — {STEP_LABELS[step]}
           </p>
         </div>
 
         {/* Step Content */}
-        <div className="rounded-3xl border border-[#e0e9e1] bg-white p-6 shadow-sm">
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-sm">
           {step === "personal" && (
             <StepPersonal draft={draft} update={update} />
           )}
@@ -228,7 +237,7 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
           )}
 
           {error && (
-            <div className="mt-4 flex items-center gap-2 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            <div className="mt-4 flex items-center gap-2 rounded-xl bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
               <AlertCircle size={16} />
               {error}
             </div>
@@ -239,7 +248,7 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
               <button
                 type="button"
                 onClick={prevStep}
-                className="flex items-center gap-2 rounded-xl border border-[#dde8de] px-4 py-2.5 text-sm font-semibold text-[#627067] hover:bg-[#f5f9f5] transition"
+                className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] transition"
               >
                 <ChevronLeft size={16} />
                 Back
@@ -252,7 +261,7 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
               <button
                 type="button"
                 onClick={nextStep}
-                className="flex items-center gap-2 rounded-xl bg-[#1e3528] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#2a4a38] transition"
+                className="flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[var(--success)] transition"
               >
                 Continue
                 <ChevronRight size={16} />
@@ -262,7 +271,7 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 rounded-xl bg-[#315c3d] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#264a30] transition disabled:opacity-60"
+                className="flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-60"
               >
                 {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                 {saving ? "Saving…" : "Save Profile"}
@@ -277,19 +286,22 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
   // ── Profile View ───────────────────────────────────────
   if (!profile) {
     return (
-      <div className="flex flex-col items-center py-16 text-center">
-        <div className="h-16 w-16 rounded-2xl bg-[#dfeee2] flex items-center justify-center mb-4">
-          <User size={28} className="text-[#315c3d]" />
+      <div className="space-y-5">
+        <AppearanceCard theme={theme} onSelect={handleThemeSelect} />
+        <div className="flex flex-col items-center py-16 text-center">
+          <div className="h-16 w-16 rounded-2xl bg-[var(--accent-pink-soft)] flex items-center justify-center mb-4">
+            <User size={28} className="text-[var(--accent-pink)]" />
+          </div>
+          <h3 className="font-bold text-[var(--text-primary)] text-lg">No profile yet</h3>
+          <p className="text-sm text-[var(--text-secondary)] mt-1 mb-4">Set up your fitness profile to unlock analytics.</p>
+          <button
+            type="button"
+            onClick={startEdit}
+            className="rounded-xl bg-[var(--accent-pink)] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[var(--success)] transition"
+          >
+            Set up profile
+          </button>
         </div>
-        <h3 className="font-bold text-[#17211b] text-lg">No profile yet</h3>
-        <p className="text-sm text-[#7a877e] mt-1 mb-4">Set up your fitness profile to unlock analytics.</p>
-        <button
-          type="button"
-          onClick={startEdit}
-          className="rounded-xl bg-[#1e3528] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#2a4a38] transition"
-        >
-          Set up profile
-        </button>
       </div>
     );
   }
@@ -305,28 +317,30 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
   return (
     <div className="space-y-5">
       {success && (
-        <div className="flex items-center gap-2 rounded-2xl bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700 font-medium">
+        <div className="flex items-center gap-2 rounded-2xl bg-[var(--success-soft)] border border-[var(--success-soft)] px-4 py-3 text-sm text-[var(--success)] font-medium">
           <Check size={16} />
           Profile saved successfully!
         </div>
       )}
 
+      <AppearanceCard theme={theme} onSelect={handleThemeSelect} />
+
       {/* Identity card */}
-      <div className="rounded-3xl border border-[#e0e9e1] bg-white p-6 shadow-sm">
+      <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-sm">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
-            <div className="h-16 w-16 rounded-2xl bg-[#1e3528] flex items-center justify-center text-white text-2xl font-bold">
+            <div className="h-16 w-16 rounded-2xl bg-[var(--accent-pink)] flex items-center justify-center text-white text-2xl font-bold">
               {(profile.name || userName).charAt(0).toUpperCase()}
             </div>
             <div>
-              <h2 className="text-xl font-bold text-[#17211b]">{profile.name || userName}</h2>
+              <h2 className="text-xl font-bold text-[var(--text-primary)]">{profile.name || userName}</h2>
               {age && (
-                <p className="text-sm text-[#7a877e] capitalize">
+                <p className="text-sm text-[var(--text-secondary)] capitalize">
                   {age} yrs · {profile.gender || "—"} · {profile.activityLevel?.replace(/_/g, " ") || "—"}
                 </p>
               )}
               {profile.fitnessGoal && (
-                <span className="mt-1 inline-block rounded-full bg-[#edf4ee] px-3 py-0.5 text-xs font-semibold text-[#315c3d] capitalize">
+                <span className="mt-1 inline-block rounded-full bg-[var(--bg-elevated)] px-3 py-0.5 text-xs font-semibold text-[var(--accent-pink)] capitalize">
                   Goal: {profile.fitnessGoal.replace(/_/g, " ")}
                 </span>
               )}
@@ -335,7 +349,7 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
           <button
             type="button"
             onClick={startEdit}
-            className="flex items-center gap-2 rounded-xl border border-[#dde8de] px-3 py-2 text-sm font-semibold text-[#627067] hover:bg-[#f5f9f5] transition"
+            className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-sm font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] transition"
           >
             <Edit3 size={15} />
             Edit
@@ -345,10 +359,10 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
 
       {/* BMI Card */}
       {bmi && bmiCat && (
-        <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
-            <Scale size={18} className="text-[#315c3d]" />
-            <h3 className="font-bold text-[#17211b]">Body Metrics</h3>
+            <Scale size={18} className="text-[var(--accent-pink)]" />
+            <h3 className="font-bold text-[var(--text-primary)]">Body Metrics</h3>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <BMIBlock label="BMI" value={bmi.toFixed(1)} sub={bmiCat.label} subColor={bmiCat.color} />
@@ -359,14 +373,14 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
           {/* BMI bar */}
           <div className="mt-4 space-y-1">
             <div className="relative h-3 rounded-full overflow-hidden" style={{
-              background: "linear-gradient(to right, #3b82f6 0%, #22c55e 30%, #f59e0b 60%, #ef4444 100%)"
+              background: "linear-gradient(to right, var(--accent-blue) 0%, var(--success) 30%, var(--warning) 60%, var(--danger) 100%)"
             }}>
               <div
-                className="absolute top-0 h-full w-1 bg-white rounded-full shadow"
+                className="absolute top-0 h-full w-1 bg-[var(--bg-elevated)] rounded-full shadow"
                 style={{ left: `${Math.min(100, Math.max(0, ((bmi - 10) / 30) * 100))}%`, transform: "translateX(-50%)" }}
               />
             </div>
-            <div className="flex justify-between text-[10px] text-[#8a9590]">
+            <div className="flex justify-between text-[10px] text-[var(--text-muted)]">
               <span>Underweight</span><span>Normal</span><span>Overweight</span><span>Obese</span>
             </div>
           </div>
@@ -375,16 +389,16 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
 
       {/* Calorie info */}
       {tdee && (
-        <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
-            <Activity size={18} className="text-orange-500" />
-            <h3 className="font-bold text-[#17211b]">Daily Energy</h3>
+            <Activity size={18} className="text-[var(--accent-yellow)]" />
+            <h3 className="font-bold text-[var(--text-primary)]">Daily Energy</h3>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 sm:col-span-1 rounded-2xl bg-[#1e3528] p-4 text-white">
-              <p className="text-xs text-[#b9cbbd]">Maintenance Calories</p>
+            <div className="col-span-2 sm:col-span-1 rounded-2xl bg-[var(--accent-pink)] p-4 text-white">
+              <p className="text-xs text-[var(--text-faint)]">Maintenance Calories</p>
               <p className="text-3xl font-bold mt-1">{Math.round(tdee)}</p>
-              <p className="text-xs text-[#b9cbbd]">kcal / day</p>
+              <p className="text-xs text-[var(--text-faint)]">kcal / day</p>
             </div>
             <BMIBlock label="Basal Rate" value={`${Math.round(bmr!)}`} sub="kcal BMR" />
           </div>
@@ -392,10 +406,10 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
       )}
 
       {/* Goals grid */}
-      <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
         <div className="flex items-center gap-2 mb-4">
-          <Target size={18} className="text-[#315c3d]" />
-          <h3 className="font-bold text-[#17211b]">Goals & Lifestyle</h3>
+          <Target size={18} className="text-[var(--accent-pink)]" />
+          <h3 className="font-bold text-[var(--text-primary)]">Goals & Lifestyle</h3>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <GoalItem icon={<Target size={15} />} label="Goal" value={profile.fitnessGoal?.replace(/_/g, " ") || "—"} />
@@ -409,14 +423,14 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
 
       {/* Health conditions */}
       {profile.healthConditions && profile.healthConditions.length > 0 && (
-        <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-3">
-            <Heart size={18} className="text-red-400" />
-            <h3 className="font-bold text-[#17211b]">Health Conditions</h3>
+            <Heart size={18} className="text-[var(--danger)]" />
+            <h3 className="font-bold text-[var(--text-primary)]">Health Conditions</h3>
           </div>
           <div className="flex flex-wrap gap-2">
             {profile.healthConditions.map((c) => (
-              <span key={c} className="rounded-full bg-red-50 border border-red-200 px-3 py-1 text-xs font-semibold text-red-700">
+              <span key={c} className="rounded-full bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-3 py-1 text-xs font-semibold text-[var(--danger)]">
                 {c}
               </span>
             ))}
@@ -464,8 +478,8 @@ function StepPersonal({ draft, update }: {
               onClick={() => update("gender", g)}
               className={`rounded-xl border py-2.5 text-sm font-semibold capitalize transition ${
                 draft.gender === g
-                  ? "border-[#315c3d] bg-[#edf4ee] text-[#315c3d]"
-                  : "border-[#dde8de] text-[#627067] hover:bg-[#f5f9f5]"
+                  ? "border-[var(--accent-pink)] bg-[var(--bg-elevated)] text-[var(--accent-pink)]"
+                  : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
               }`}
             >
               {g}
@@ -527,12 +541,12 @@ function StepBody({ draft, update }: {
         <div className="rounded-2xl p-4" style={{ backgroundColor: `${bmiCat.color}15`, border: `1px solid ${bmiCat.color}40` }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-semibold text-[#7a877e]">Your BMI</p>
+              <p className="text-xs font-semibold text-[var(--text-secondary)]">Your BMI</p>
               <p className="text-2xl font-bold mt-0.5" style={{ color: bmiCat.color }}>{bmi.toFixed(1)}</p>
             </div>
             <div className="text-right">
               <p className="font-bold text-sm" style={{ color: bmiCat.color }}>{bmiCat.label}</p>
-              <p className="text-xs text-[#7a877e]">{bmiCat.description}</p>
+              <p className="text-xs text-[var(--text-secondary)]">{bmiCat.description}</p>
             </div>
           </div>
         </div>
@@ -565,13 +579,13 @@ function StepGoals({ draft, update }: {
             onClick={() => update("fitnessGoal", g.value)}
             className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-semibold transition ${
               draft.fitnessGoal === g.value
-                ? "border-[#315c3d] bg-[#edf4ee] text-[#315c3d]"
-                : "border-[#dde8de] text-[#627067] hover:bg-[#f5f9f5]"
+                ? "border-[var(--accent-pink)] bg-[var(--bg-elevated)] text-[var(--accent-pink)]"
+                : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
             }`}
           >
             <span className="text-lg">{g.emoji}</span>
             {g.label}
-            {draft.fitnessGoal === g.value && <Check size={16} className="ml-auto text-[#315c3d]" />}
+            {draft.fitnessGoal === g.value && <Check size={16} className="ml-auto text-[var(--accent-pink)]" />}
           </button>
         ))}
       </div>
@@ -585,8 +599,8 @@ function StepGoals({ draft, update }: {
               onClick={() => update("weeklyWorkoutDays", d)}
               className={`h-10 w-10 rounded-xl border text-sm font-bold transition ${
                 draft.weeklyWorkoutDays === d
-                  ? "border-[#315c3d] bg-[#315c3d] text-white"
-                  : "border-[#dde8de] text-[#627067] hover:bg-[#f5f9f5]"
+                  ? "border-[var(--accent-pink)] bg-[var(--accent-pink)] text-white"
+                  : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
               }`}
             >
               {d}
@@ -638,15 +652,15 @@ function StepLifestyle({ draft, update }: {
               onClick={() => update("activityLevel", a.value)}
               className={`w-full flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
                 draft.activityLevel === a.value
-                  ? "border-[#315c3d] bg-[#edf4ee]"
-                  : "border-[#dde8de] hover:bg-[#f5f9f5]"
+                  ? "border-[var(--accent-pink)] bg-[var(--bg-elevated)]"
+                  : "border-[var(--border)] hover:bg-[var(--bg-elevated)]"
               }`}
             >
               <div>
-                <p className="text-sm font-semibold text-[#17211b]">{a.label}</p>
-                <p className="text-xs text-[#7a877e]">{a.sub}</p>
+                <p className="text-sm font-semibold text-[var(--text-primary)]">{a.label}</p>
+                <p className="text-xs text-[var(--text-secondary)]">{a.sub}</p>
               </div>
-              {draft.activityLevel === a.value && <Check size={16} className="text-[#315c3d] shrink-0" />}
+              {draft.activityLevel === a.value && <Check size={16} className="text-[var(--accent-pink)] shrink-0" />}
             </button>
           ))}
         </div>
@@ -661,8 +675,8 @@ function StepLifestyle({ draft, update }: {
               onClick={() => update("dietaryPreference", d)}
               className={`rounded-xl border px-3 py-2 text-sm font-semibold capitalize transition ${
                 draft.dietaryPreference === d
-                  ? "border-[#315c3d] bg-[#edf4ee] text-[#315c3d]"
-                  : "border-[#dde8de] text-[#627067] hover:bg-[#f5f9f5]"
+                  ? "border-[var(--accent-pink)] bg-[var(--bg-elevated)] text-[var(--accent-pink)]"
+                  : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
               }`}
             >
               {d === "none" ? "No preference" : d}
@@ -723,8 +737,8 @@ function StepHealth({ draft, update, toggleCondition }: {
                 onClick={() => toggleCondition(c)}
                 className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${
                   selected
-                    ? "border-red-400 bg-red-50 text-red-700"
-                    : "border-[#dde8de] text-[#627067] hover:bg-[#f5f9f5]"
+                    ? "border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)]"
+                    : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
                 }`}
               >
                 {c}
@@ -740,11 +754,11 @@ function StepHealth({ draft, update, toggleCondition }: {
           onClick={() => update("reminderEnabled", !draft.reminderEnabled)}
           className={`flex items-center gap-3 w-full rounded-xl border px-4 py-3 text-left text-sm font-semibold transition ${
             draft.reminderEnabled
-              ? "border-[#315c3d] bg-[#edf4ee] text-[#315c3d]"
-              : "border-[#dde8de] text-[#627067] hover:bg-[#f5f9f5]"
+              ? "border-[var(--accent-pink)] bg-[var(--bg-elevated)] text-[var(--accent-pink)]"
+              : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
           }`}
         >
-          {draft.reminderEnabled ? <Check size={16} /> : <span className="h-4 w-4 rounded-sm border border-[#b0bdb5]" />}
+          {draft.reminderEnabled ? <Check size={16} /> : <span className="h-4 w-4 rounded-sm border border-[var(--text-faint)]" />}
           Enable daily reminders
         </button>
       </Field>
@@ -770,7 +784,7 @@ function StepSummary({ draft }: { draft: FitnessProfile }) {
         <SummaryRow label="Weight" value={draft.weightKg ? `${draft.weightKg} kg` : "—"} />
         {bmi && bmiCat && (
           <div className="flex justify-between py-1.5">
-            <span className="text-[#7a877e] font-medium">BMI</span>
+            <span className="text-[var(--text-secondary)] font-medium">BMI</span>
             <span className="font-bold" style={{ color: bmiCat.color }}>
               {bmi.toFixed(1)} ({bmiCat.label})
             </span>
@@ -787,13 +801,56 @@ function StepSummary({ draft }: { draft: FitnessProfile }) {
 
 // ── Helpers ────────────────────────────────────────────────
 
-const inputCls = "w-full rounded-xl border border-[#dde8de] bg-[#f9fcf9] px-4 py-2.5 text-sm font-medium text-[#17211b] placeholder-[#a8b5ad] focus:border-[#315c3d] focus:outline-none focus:ring-2 focus:ring-[#315c3d]/20 transition";
-const selectCls = "w-full rounded-xl border border-[#dde8de] bg-[#f9fcf9] px-4 py-2.5 text-sm font-medium text-[#17211b] focus:border-[#315c3d] focus:outline-none focus:ring-2 focus:ring-[#315c3d]/20 transition";
+function AppearanceCard({
+  theme,
+  onSelect,
+}: {
+  theme: "light" | "dark";
+  onSelect: (t: "light" | "dark") => void;
+}) {
+  return (
+    <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
+      <p className="text-sm font-bold text-[var(--text-primary)]">Appearance</p>
+      <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+        This device remembers your pick — it's saved to your account too.
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => onSelect("dark")}
+          className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold transition
+            ${theme === "dark"
+              ? "border-[var(--accent-pink)] bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]"
+              : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent-pink)]"
+            }`}
+        >
+          <Moon size={15} />
+          Dark
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelect("light")}
+          className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold transition
+            ${theme === "light"
+              ? "border-[var(--accent-pink)] bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]"
+              : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent-pink)]"
+            }`}
+        >
+          <Sun size={15} />
+          Light
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const inputCls = "w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] placeholder-[var(--text-faint)] focus:border-[var(--accent-pink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-pink)]/20 transition";
+const selectCls = "w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] focus:border-[var(--accent-pink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-pink)]/20 transition";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-semibold text-[#627067] uppercase tracking-wide">{label}</label>
+      <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">{label}</label>
       {children}
     </div>
   );
@@ -802,12 +859,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function StepHeading({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) {
   return (
     <div className="flex items-start gap-3 mb-2">
-      <div className="h-10 w-10 rounded-xl bg-[#edf4ee] flex items-center justify-center text-[#315c3d] shrink-0">
+      <div className="h-10 w-10 rounded-xl bg-[var(--bg-elevated)] flex items-center justify-center text-[var(--accent-pink)] shrink-0">
         {icon}
       </div>
       <div>
-        <h3 className="font-bold text-[#17211b]">{title}</h3>
-        <p className="text-xs text-[#7a877e]">{subtitle}</p>
+        <h3 className="font-bold text-[var(--text-primary)]">{title}</h3>
+        <p className="text-xs text-[var(--text-secondary)]">{subtitle}</p>
       </div>
     </div>
   );
@@ -815,30 +872,30 @@ function StepHeading({ icon, title, subtitle }: { icon: React.ReactNode; title: 
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between py-1.5 border-b border-[#f0f5f1]">
-      <span className="text-[#7a877e] font-medium">{label}</span>
-      <span className="font-semibold text-[#17211b] capitalize">{value}</span>
+    <div className="flex justify-between py-1.5 border-b border-[var(--bg-elevated)]">
+      <span className="text-[var(--text-secondary)] font-medium">{label}</span>
+      <span className="font-semibold text-[var(--text-primary)] capitalize">{value}</span>
     </div>
   );
 }
 
 function BMIBlock({ label, value, sub, subColor }: { label: string; value: string; sub: string; subColor?: string }) {
   return (
-    <div className="rounded-2xl bg-[#f5f9f5] p-3">
-      <p className="text-xs text-[#7a877e]">{label}</p>
-      <p className="text-2xl font-bold text-[#17211b] mt-0.5">{value}</p>
-      <p className="text-xs font-semibold mt-0.5 capitalize" style={{ color: subColor ?? "#7a877e" }}>{sub}</p>
+    <div className="rounded-2xl bg-[var(--bg-elevated)] p-3">
+      <p className="text-xs text-[var(--text-secondary)]">{label}</p>
+      <p className="text-2xl font-bold text-[var(--text-primary)] mt-0.5">{value}</p>
+      <p className="text-xs font-semibold mt-0.5 capitalize" style={{ color: subColor ?? "var(--text-secondary)" }}>{sub}</p>
     </div>
   );
 }
 
 function GoalItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-[#e8f0e9] bg-[#f9fcf9] p-3">
-      <div className="flex items-center gap-1.5 mb-1 text-[#315c3d]">{icon}
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-[#8a9590]">{label}</p>
+    <div className="rounded-2xl border border-[var(--accent-pink-soft)] bg-[var(--bg-elevated)] p-3">
+      <div className="flex items-center gap-1.5 mb-1 text-[var(--accent-pink)]">{icon}
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
       </div>
-      <p className="text-sm font-semibold text-[#2d3d32] capitalize">{value}</p>
+      <p className="text-sm font-semibold text-[var(--text-secondary)] capitalize">{value}</p>
     </div>
   );
 }

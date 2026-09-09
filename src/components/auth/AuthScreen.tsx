@@ -165,17 +165,17 @@ export default function AuthScreen() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f8f5]">
+    <main className="min-h-screen bg-[var(--bg)]">
       <div className="mx-auto grid min-h-screen max-w-7xl lg:grid-cols-2">
         {/* Brand panel */}
-        <section className="relative hidden overflow-hidden bg-[#1e3528] p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
-          <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-[#496b52] opacity-30 blur-3xl" />
+        <section className="relative hidden overflow-hidden bg-[var(--accent-pink)] p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
+          <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-[var(--success)] opacity-30 blur-3xl" />
 
-          <div className="absolute -bottom-40 -left-24 h-96 w-96 rounded-full bg-[#78957d] opacity-10 blur-3xl" />
+          <div className="absolute -bottom-40 -left-24 h-96 w-96 rounded-full bg-[var(--text-muted)] opacity-10 blur-3xl" />
 
           <div className="relative">
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--bg-elevated)]/10">
                 <Sparkles size={21} />
               </div>
 
@@ -184,7 +184,7 @@ export default function AuthScreen() {
                   AimeSig Wellness
                 </p>
 
-                <p className="text-xs text-[#b9cbbd]">
+                <p className="text-xs text-[var(--text-faint)]">
                   Your daily wellness companion
                 </p>
               </div>
@@ -192,7 +192,7 @@ export default function AuthScreen() {
           </div>
 
           <div className="relative max-w-lg">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-[#d9ebdc]">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-[var(--bg-elevated)]/10 px-3 py-1.5 text-xs font-semibold text-[var(--accent-pink-soft)]">
               <ShieldCheck size={14} />
               PRIVATE & PERSONAL
             </div>
@@ -203,13 +203,13 @@ export default function AuthScreen() {
               Live with intention.
             </h1>
 
-            <p className="mt-5 max-w-md text-base leading-7 text-[#b9cbbd]">
+            <p className="mt-5 max-w-md text-base leading-7 text-[var(--text-faint)]">
               Keep your daily routines, wellness measurements, and progress
               together in one calm and focused space.
             </p>
           </div>
 
-          <div className="relative flex items-center gap-3 text-sm text-[#9fb4a3]">
+          <div className="relative flex items-center gap-3 text-sm text-[var(--text-faint)]">
             <LockKeyhole size={16} />
             Your wellness data belongs to you.
           </div>
@@ -220,31 +220,31 @@ export default function AuthScreen() {
           <div className="w-full max-w-md">
             {/* Mobile brand */}
             <div className="mb-8 flex items-center gap-3 lg:hidden">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#dfeee2] text-[#315c3d]">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]">
                 <Sparkles size={21} />
               </div>
 
               <div>
-                <p className="font-bold tracking-tight text-[#1c2b21]">
+                <p className="font-bold tracking-tight text-[var(--text-primary)]">
                   AimeSig Wellness
                 </p>
 
-                <p className="text-xs text-[#7a877e]">
+                <p className="text-xs text-[var(--text-secondary)]">
                   Your daily wellness companion
                 </p>
               </div>
             </div>
 
             <div>
-              <p className="text-sm font-semibold text-[#6c7b71]">
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">
                 {isRegister ? "GET STARTED" : "WELCOME BACK"}
               </p>
 
-              <h2 className="mt-1 text-3xl font-bold tracking-tight text-[#17211b]">
+              <h2 className="mt-1 text-3xl font-bold tracking-tight text-[var(--text-primary)]">
                 {isRegister ? "Create your account" : "Sign in to Wellness"}
               </h2>
 
-              <p className="mt-2 text-sm leading-6 text-[#748178]">
+              <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
                 {isRegister
                   ? "Start building a healthier and more consistent routine."
                   : "Continue where you left off."}
@@ -252,14 +252,14 @@ export default function AuthScreen() {
             </div>
 
             {/* Mode switch */}
-            <div className="mt-7 grid grid-cols-2 rounded-2xl bg-[#eaf0eb] p-1">
+            <div className="mt-7 grid grid-cols-2 rounded-2xl bg-[var(--bg-elevated)] p-1">
               <button
                 type="button"
                 onClick={() => switchMode("login")}
                 className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
                   !isRegister
-                    ? "bg-white text-[#315c3d] shadow-sm"
-                    : "text-[#6f7d74]"
+                    ? "bg-[var(--bg-elevated)] text-[var(--accent-pink)] shadow-sm"
+                    : "text-[var(--text-secondary)]"
                 }`}
               >
                 Sign in
@@ -270,8 +270,8 @@ export default function AuthScreen() {
                 onClick={() => switchMode("register")}
                 className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
                   isRegister
-                    ? "bg-white text-[#315c3d] shadow-sm"
-                    : "text-[#6f7d74]"
+                    ? "bg-[var(--bg-elevated)] text-[var(--accent-pink)] shadow-sm"
+                    : "text-[var(--text-secondary)]"
                 }`}
               >
                 Register
@@ -283,7 +283,7 @@ export default function AuthScreen() {
               <div>
                 <label
                   htmlFor="email"
-                  className="mb-2 block text-sm font-semibold text-[#334238]"
+                  className="mb-2 block text-sm font-semibold text-[var(--text-secondary)]"
                 >
                   Email address
                 </label>
@@ -291,7 +291,7 @@ export default function AuthScreen() {
                 <div className="relative">
                   <Mail
                     size={18}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-[#8a978e]"
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
                   />
 
                   <input
@@ -301,7 +301,7 @@ export default function AuthScreen() {
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="you@example.com"
-                    className="w-full rounded-2xl border border-[#dce6de] bg-white py-3.5 pl-11 pr-4 text-sm text-[#243128] outline-none transition placeholder:text-[#a0aaa3] focus:border-[#75977d] focus:ring-4 focus:ring-[#e6f1e8]"
+                    className="w-full rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] py-3.5 pl-11 pr-4 text-sm text-[var(--text-primary)] outline-none transition placeholder:text-[var(--text-faint)] focus:border-[var(--text-muted)] focus:ring-4 focus:ring-[var(--accent-pink-soft)]"
                   />
                 </div>
               </div>
@@ -311,7 +311,7 @@ export default function AuthScreen() {
                 <div className="mb-2 flex items-center justify-between">
                   <label
                     htmlFor="password"
-                    className="block text-sm font-semibold text-[#334238]"
+                    className="block text-sm font-semibold text-[var(--text-secondary)]"
                   >
                     Password
                   </label>
@@ -321,7 +321,7 @@ export default function AuthScreen() {
                       type="button"
                       onClick={handleForgotPassword}
                       disabled={resetLoading}
-                      className="text-xs font-semibold text-[#4d7657] hover:text-[#315c3d] disabled:opacity-50"
+                      className="text-xs font-semibold text-[var(--success)] hover:text-[var(--accent-pink)] disabled:opacity-50"
                     >
                       {resetLoading ? "Sending..." : "Forgot password?"}
                     </button>
@@ -331,7 +331,7 @@ export default function AuthScreen() {
                 <div className="relative">
                   <KeyRound
                     size={18}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-[#8a978e]"
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
                   />
 
                   <input
@@ -343,7 +343,7 @@ export default function AuthScreen() {
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     placeholder="Enter your password"
-                    className="w-full rounded-2xl border border-[#dce6de] bg-white py-3.5 pl-11 pr-12 text-sm text-[#243128] outline-none transition placeholder:text-[#a0aaa3] focus:border-[#75977d] focus:ring-4 focus:ring-[#e6f1e8]"
+                    className="w-full rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] py-3.5 pl-11 pr-12 text-sm text-[var(--text-primary)] outline-none transition placeholder:text-[var(--text-faint)] focus:border-[var(--text-muted)] focus:ring-4 focus:ring-[var(--accent-pink-soft)]"
                   />
 
                   <button
@@ -352,7 +352,7 @@ export default function AuthScreen() {
                       showPassword ? "Hide password" : "Show password"
                     }
                     onClick={() => setShowPassword((visible) => !visible)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl p-2 text-[#8a978e] transition hover:bg-[#f2f6f2] hover:text-[#526359]"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl p-2 text-[var(--text-muted)] transition hover:bg-[var(--bg-elevated)] hover:text-[var(--text-secondary)]"
                   >
                     {showPassword ? (
                       <EyeOff size={18} />
@@ -367,7 +367,7 @@ export default function AuthScreen() {
               {errorMessage && (
                 <div
                   role="alert"
-                  className="rounded-2xl border border-[#f0d8d4] bg-[#fff6f4] px-4 py-3 text-sm leading-5 text-[#a24f47]"
+                  className="rounded-2xl border border-[var(--danger-soft)] bg-[var(--danger-soft)] px-4 py-3 text-sm leading-5 text-[var(--danger)]"
                 >
                   {errorMessage}
                 </div>
@@ -377,7 +377,7 @@ export default function AuthScreen() {
               {successMessage && (
                 <div
                   role="status"
-                  className="rounded-2xl border border-[#d5e8d8] bg-[#f2faf3] px-4 py-3 text-sm leading-5 text-[#397047]"
+                  className="rounded-2xl border border-[var(--success-soft)] bg-[var(--bg-elevated)] px-4 py-3 text-sm leading-5 text-[var(--success)]"
                 >
                   {successMessage}
                 </div>
@@ -387,11 +387,11 @@ export default function AuthScreen() {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#315c3d] px-5 py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#294f34] focus:outline-none focus:ring-4 focus:ring-[#dcecdf] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent-pink)] px-5 py-3.5 text-sm font-bold text-white shadow-sm transition hover:opacity-90 focus:outline-none focus:ring-4 focus:ring-[var(--accent-pink-soft)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? (
                   <>
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--border-strong)]/30 border-t-white" />
                     {isRegister ? "Creating account..." : "Signing in..."}
                   </>
                 ) : (
@@ -408,7 +408,7 @@ export default function AuthScreen() {
               </button>
             </form>
 
-            <p className="mt-7 text-center text-xs leading-5 text-[#89958d]">
+            <p className="mt-7 text-center text-xs leading-5 text-[var(--text-muted)]">
               By continuing, you agree to use AimeSig Wellness responsibly and
               keep your account credentials secure.
             </p>

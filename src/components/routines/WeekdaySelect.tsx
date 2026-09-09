@@ -27,7 +27,7 @@ export function WeekdaySelect({
 
   return (
     <div>
-      <label className="mb-2 block text-sm font-medium text-slate-700">
+      <label className="mb-2 block text-sm font-medium text-[var(--text-secondary)]">
         Repeat on
       </label>
 
@@ -42,8 +42,8 @@ export function WeekdaySelect({
               onClick={() => toggle(value)}
               className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
                 selected
-                  ? "bg-slate-900 text-white"
-                  : "border border-slate-300 text-slate-700 hover:bg-slate-100"
+                  ? "bg-[var(--accent-pink)] text-white"
+                  : "border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-strong)]"
               }`}
             >
               {label}
@@ -53,7 +53,7 @@ export function WeekdaySelect({
       </div>
 
       {selectedWeekdays.length === 0 && (
-        <p className="mt-1.5 text-xs text-slate-400">
+        <p className="mt-1.5 text-xs text-[var(--text-faint)]">
           Select at least one day, or leave empty to repeat on the start day.
         </p>
       )}

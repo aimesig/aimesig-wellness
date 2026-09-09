@@ -7,16 +7,19 @@ import {
   Home,
   Loader2,
   LogOut,
+  Moon,
   Sparkles,
+  Sun,
   User,
   X,
 } from "lucide-react";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Timestamp } from "firebase/firestore";
 
 import AuthScreen from "./components/auth/AuthScreen";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { CalendarView } from "./components/calendar/CalendarView";
 import { ProfileView } from "./components/profile/ProfileView";
 import { RoutineManager } from "./components/routines/RoutineManager";
@@ -28,6 +31,7 @@ import { getRoutineLog, saveRoutineLog } from "./services/routineLogService";
 import { getRoutinesForDate } from "./utils/recurrence";
 import { getStreakData } from "./services/streakService";
 import { getProfile } from "./services/profileService";
+import { getUserTheme, saveUserTheme } from "./services/themeService";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -52,9 +56,11 @@ function getDisplayName(email: string | null): string {
 
 function App() {
   return (
-    <AuthProvider>
-      <AuthenticatedApplication />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AuthenticatedApplication />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 
@@ -67,9 +73,9 @@ function AuthenticatedApplication() {
 
 function LoadingScreen() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f5f8f5]">
-      <div className="flex items-center gap-3 text-sm font-medium text-[#526359]">
-        <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#c8d9cb] border-t-[#315c3d]" />
+    <main className="flex min-h-screen items-center justify-center bg-[var(--bg)]">
+      <div className="flex items-center gap-3 text-sm font-medium text-[var(--text-secondary)]">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent-pink)]" />
         Loading…
       </div>
     </main>
@@ -92,9 +98,11 @@ const NAV: { label: NavTab; icon: typeof Home }[] = [
 
 function WellnessDashboard({ userName, userId }: { userName: string; userId: string }) {
   const { logout } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [tab, setTab] = useState<NavTab>("Home");
   const [streak, setStreak] = useState<number | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const themeLoaded = useRef(false);
 
   useEffect(() => {
     getStreakData(userId).then((s) => setStreak(s.currentStreak)).catch(() => {});
@@ -103,9 +111,34 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
       .catch(() => setDisplayName(userName));
   }, [userId]);
 
+  // Each signed-in user keeps their own light/dark preference, synced from
+  // Firestore on login and written back whenever they toggle it.
+  useEffect(() => {
+    let cancelled = false;
+    themeLoaded.current = false;
+    getUserTheme(userId)
+      .then((saved) => {
+        if (cancelled) return;
+        if (saved) setTheme(saved);
+        themeLoaded.current = true;
+      })
+      .catch(() => {
+        themeLoaded.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, setTheme, themeLoaded]);
+
   const handleNameChange = useCallback((name: string) => {
     setDisplayName(name);
   }, []);
+
+  function handleThemeToggle() {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    void saveUserTheme(userId, next);
+  }
 
   async function handleLogout() {
     try { await logout(); } catch (e) { console.error(e); }
@@ -147,9 +180,9 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f8f5] text-[#17211b]">
+    <div className="min-h-screen bg-[var(--bg)] text-[var(--text-primary)]">
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-52 flex-col border-r border-[#e0e8e1] bg-white px-3 py-6 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-52 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-6 lg:flex">
         <Brand />
         <nav className="mt-8 flex flex-1 flex-col gap-0.5">
           {NAV.map((item) => (
@@ -163,32 +196,38 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
           ))}
         </nav>
         {streak !== null && streak > 0 && (
-          <div className="mb-4 flex items-center gap-2 rounded-xl bg-orange-50 px-3 py-2.5 text-xs font-semibold text-orange-600">
+          <div className="mb-4 flex items-center gap-2 rounded-xl bg-[var(--accent-yellow-soft)] px-3 py-2.5 text-xs font-semibold text-[var(--accent-yellow)]">
             <Flame size={13} />
             {streak}-day streak
           </div>
         )}
         <button
           type="button"
+          onClick={handleThemeToggle}
+          className="mb-1 flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-strong)]"
+        >
+          {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          {theme === "dark" ? "Light mode" : "Dark mode"}
+        </button>
+        <button
+          type="button"
           onClick={handleLogout}
-          className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-[#627067] transition hover:bg-[#f2f6f2]"
+          className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-strong)]"
         >
           <LogOut size={15} />
           Sign out
         </button>
       </aside>
 
-      {/* Mobile header */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[#e0e8e1] bg-white/90 px-4 py-3 backdrop-blur-xl lg:hidden">
-        <Brand compact />
-        <div className="flex items-center gap-2">
-          {streak !== null && streak > 0 && (
-            <span className="flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-bold text-orange-600">
-              <Flame size={11} /> {streak}d
-            </span>
-          )}
-        </div>
-      </header>
+      {/* Top bar: profile (top-left), streak (top-middle), theme toggle (top-right) */}
+      <TopBar
+        displayName={displayName ?? userName}
+        streak={streak}
+        active={tab === "Profile"}
+        theme={theme}
+        onProfileClick={() => setTab("Profile")}
+        onThemeToggle={handleThemeToggle}
+      />
 
       {/* Main */}
       <main className="pb-24 lg:ml-52 lg:pb-10">
@@ -198,7 +237,7 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
       </main>
 
       {/* Mobile bottom nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#dfe8e1] bg-white/95 px-1 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur-xl lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--nav-bg)] px-1 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur-xl lg:hidden">
         <div className="flex items-center justify-around">
           {NAV.map((item) => (
             <MobileNavBtn
@@ -212,6 +251,85 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
         </div>
       </nav>
     </div>
+  );
+}
+
+// ─── top bar: profile top-left · streak top-middle · theme top-right ──────
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.charAt(0).toUpperCase();
+  return (parts[0]!.charAt(0) + parts[parts.length - 1]!.charAt(0)).toUpperCase();
+}
+
+function TopBar({
+  displayName,
+  streak,
+  active,
+  theme,
+  onProfileClick,
+  onThemeToggle,
+}: {
+  displayName: string | null;
+  streak: number | null;
+  active: boolean;
+  theme: "light" | "dark";
+  onProfileClick: () => void;
+  onThemeToggle: () => void;
+}) {
+  const initials = displayName ? getInitials(displayName) : "";
+
+  return (
+    <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--nav-bg)] px-4 py-3 backdrop-blur-xl lg:pl-56">
+      <div className="mx-auto grid max-w-2xl grid-cols-3 items-center">
+        {/* Profile — top left */}
+        <button
+          type="button"
+          onClick={onProfileClick}
+          className="flex w-fit items-center gap-2"
+          aria-label="Open profile"
+        >
+          <span
+            className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white transition
+              ${active ? "shadow-[var(--glow-pink)]" : ""}`}
+            style={{
+              background: "linear-gradient(135deg, var(--accent-pink), var(--accent-blue))",
+              border: active ? "2px solid var(--accent-pink)" : "2px solid transparent",
+            }}
+          >
+            {initials || <User size={15} />}
+          </span>
+        </button>
+
+        {/* Streak — top middle */}
+        <div className="flex justify-center">
+          {streak !== null && streak > 0 ? (
+            <span
+              className="flex items-center gap-1.5 rounded-full border border-[var(--accent-yellow-soft)] bg-[var(--accent-yellow-soft)] px-3 py-1.5 text-xs font-bold text-[var(--accent-yellow)]"
+              style={{ boxShadow: "var(--glow-yellow)" }}
+            >
+              <Flame size={13} strokeWidth={2.5} />
+              {streak}-day streak
+            </span>
+          ) : (
+            <span className="text-xs font-medium text-[var(--text-faint)]">No streak yet</span>
+          )}
+        </div>
+
+        {/* Theme toggle — top right */}
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onThemeToggle}
+            aria-label="Toggle light and dark theme"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] transition hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)]"
+          >
+            {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+        </div>
+      </div>
+    </header>
   );
 }
 
@@ -256,22 +374,22 @@ function HomeView({ userId, userName, streak }: { userId: string; userName: stri
   return (
     <>
       <div className="mb-6">
-        <p className="text-xs font-medium text-[#8a958d]">
+        <p className="text-xs font-medium text-[var(--text-muted)]">
           {today.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}
         </p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#17211b]">
+        <h1 className="mt-1 text-2xl font-bold tracking-tight text-[var(--text-primary)]">
           {greeting},{" "}
           {userName === null ? (
-            <span className="inline-block h-6 w-32 animate-pulse rounded-md bg-[#e0e8e1]" />
+            <span className="inline-block h-6 w-32 animate-pulse rounded-md bg-[var(--border)]" />
           ) : (
             userName
           )}
         </h1>
         {total > 0 && (
-          <p className="mt-1 text-sm text-[#7a877e]">
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
             {done}/{total} done today
             {streak !== null && streak > 0 && (
-              <span className="ml-3 inline-flex items-center gap-1 text-orange-500">
+              <span className="ml-3 inline-flex items-center gap-1 text-[var(--accent-yellow)]">
                 <Flame size={12} /> {streak}d
               </span>
             )}
@@ -280,13 +398,13 @@ function HomeView({ userId, userName, streak }: { userId: string; userName: stri
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-16 text-[#8a958d]">
+        <div className="flex justify-center py-16 text-[var(--text-muted)]">
           <Loader2 size={22} className="animate-spin" />
         </div>
       ) : routines.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-[#cdd8cf] py-16 text-center">
-          <p className="text-sm font-medium text-[#8a958d]">No routines scheduled for today</p>
-          <p className="mt-1 text-xs text-[#a5afa8]">Add routines in My Routines</p>
+        <div className="rounded-2xl border border-dashed border-[var(--border)] py-16 text-center">
+          <p className="text-sm font-medium text-[var(--text-muted)]">No routines scheduled for today</p>
+          <p className="mt-1 text-xs text-[var(--text-faint)]">Add routines in My Routines</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -380,22 +498,22 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
   }
 
   const statusColors: Record<RoutineStatus, string> = {
-    yes: "border-[#3a7549] bg-[#eaf5ec]",
-    no: "border-[#c0392b]/40 bg-[#fff5f5]",
-    pending: "border-[#e0e8e1] bg-white",
+    yes: "border-[var(--success)] bg-[var(--success-soft)]",
+    no: "border-[var(--danger)]/40 bg-[var(--danger-soft)]",
+    pending: "border-[var(--border)] bg-[var(--bg-elevated)]",
   };
 
   return (
     <article className={`rounded-2xl border p-4 transition-colors ${statusColors[status]}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-semibold text-[#1c2b21] leading-snug">{routine.title}</p>
+          <p className="font-semibold text-[var(--text-primary)] leading-snug">{routine.title}</p>
           {routine.description ? (
-            <p className="mt-0.5 text-xs text-[#8a958d] line-clamp-1">{routine.description}</p>
+            <p className="mt-0.5 text-xs text-[var(--text-muted)] line-clamp-1">{routine.description}</p>
           ) : null}
         </div>
         {saved && (
-          <span className="shrink-0 rounded-full bg-[#3a7549] px-2 py-0.5 text-[10px] font-bold text-white">Saved</span>
+          <span className="shrink-0 rounded-full bg-[var(--success)] px-2 py-0.5 text-[10px] font-bold text-white">Saved</span>
         )}
       </div>
 
@@ -406,8 +524,8 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
           disabled={saving}
           className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border py-2.5 text-sm font-semibold transition
             ${status === "yes"
-              ? "border-[#3a7549] bg-[#3a7549] text-white"
-              : "border-[#d0dbd2] bg-white text-[#3a7549] hover:border-[#3a7549]"
+              ? "border-[var(--success)] bg-[var(--success)] text-white"
+              : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--success)] hover:border-[var(--success)]"
             }`}
         >
           <Check size={15} strokeWidth={2.5} />
@@ -419,8 +537,8 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
           disabled={saving}
           className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border py-2.5 text-sm font-semibold transition
             ${status === "no"
-              ? "border-[#c0392b] bg-[#c0392b] text-white"
-              : "border-[#d0dbd2] bg-white text-[#c0392b] hover:border-[#c0392b]"
+              ? "border-[var(--danger)] bg-[var(--danger)] text-white"
+              : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--danger)] hover:border-[var(--danger)]"
             }`}
         >
           <X size={15} strokeWidth={2.5} />
@@ -436,7 +554,7 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
             onChange={(e) => setValue(e.target.value)}
             onBlur={() => { if (status !== "pending") void save(status, value, remark); }}
             placeholder={routine.unit ? `Value (${routine.unit})` : "Enter number"}
-            className="w-full rounded-xl border border-[#d0dbd2] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3a7549] placeholder:text-[#b0b9b3]"
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-sm outline-none focus:border-[var(--success)] placeholder:text-[var(--text-faint)]"
           />
         </div>
       )}
@@ -448,13 +566,13 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
           onChange={(e) => setRemark(e.target.value)}
           onBlur={() => { if (status !== "pending") void save(status, value, remark); }}
           placeholder="Remarks (optional)"
-          className="w-full rounded-xl border border-[#d0dbd2] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3a7549] placeholder:text-[#b0b9b3]"
+          className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-sm outline-none focus:border-[var(--success)] placeholder:text-[var(--text-faint)]"
         />
       </div>
 
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-xs text-[var(--danger)]">{error}</p>}
       {saving && (
-        <div className="mt-2 flex items-center gap-1.5 text-xs text-[#8a958d]">
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
           <Loader2 size={12} className="animate-spin" /> Saving…
         </div>
       )}
@@ -467,8 +585,8 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
 function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className="mb-6">
-      <h1 className="text-2xl font-bold tracking-tight text-[#17211b]">{title}</h1>
-      <p className="mt-0.5 text-sm text-[#7a877e]">{subtitle}</p>
+      <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">{title}</h1>
+      <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{subtitle}</p>
     </div>
   );
 }
@@ -476,12 +594,12 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className={`flex shrink-0 items-center justify-center rounded-xl bg-[#dfeee2] text-[#315c3d] ${compact ? "h-8 w-8" : "h-9 w-9"}`}>
+      <div className={`flex shrink-0 items-center justify-center rounded-xl bg-[var(--accent-pink-soft)] text-[var(--accent-pink)] ${compact ? "h-8 w-8" : "h-9 w-9"}`}>
         <Sparkles size={compact ? 16 : 18} />
       </div>
       <div className="leading-tight">
-        <p className="font-bold text-[#1c2b21]">AimeSig</p>
-        <p className="text-[10px] font-medium text-[#7a877e]">Wellness</p>
+        <p className="font-bold text-[var(--text-primary)]">AimeSig</p>
+        <p className="text-[10px] font-medium text-[var(--text-secondary)]">Wellness</p>
       </div>
     </div>
   );
@@ -493,7 +611,7 @@ function SideNavBtn({ label, icon: Icon, active, onClick }: { label: string; ico
       type="button"
       onClick={onClick}
       className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition
-        ${active ? "bg-[#e9f3ea] text-[#315c3d] font-semibold" : "font-medium text-[#718078] hover:bg-[#f4f7f4]"}`}
+        ${active ? "bg-[var(--accent-pink-soft)] text-[var(--accent-pink)] font-semibold" : "font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"}`}
     >
       <Icon size={17} />
       {label}
@@ -507,7 +625,7 @@ function MobileNavBtn({ label, icon: Icon, active, onClick }: { label: string; i
       type="button"
       onClick={onClick}
       className={`flex min-w-0 flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 transition
-        ${active ? "text-[#315c3d]" : "text-[#8a958d]"}`}
+        ${active ? "text-[var(--accent-pink)]" : "text-[var(--text-muted)]"}`}
     >
       <Icon size={19} strokeWidth={active ? 2.5 : 1.8} />
       <span className="text-[9px] font-semibold leading-none">{label}</span>

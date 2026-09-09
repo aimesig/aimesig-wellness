@@ -197,26 +197,26 @@ export function DateMultiSelect({
   const selectedCount = selectedDates.length;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
       <div className="flex items-center justify-between">
         <button
           type="button"
           onClick={previousMonth}
-          className="rounded-xl p-2 text-slate-600 hover:bg-slate-100"
+          className="rounded-xl p-2 text-[var(--text-secondary)] hover:bg-[var(--surface-strong)]"
           aria-label="Previous month"
         >
           <ChevronLeft size={20} />
         </button>
 
         <div className="text-center">
-          <h3 className="font-bold text-slate-900">
+          <h3 className="font-bold text-[var(--text-primary)]">
             {monthLabel}
           </h3>
 
           <button
             type="button"
             onClick={goToToday}
-            className="mt-1 text-xs font-semibold text-emerald-700 hover:underline"
+            className="mt-1 text-xs font-semibold text-[var(--success)] hover:underline"
           >
             Today
           </button>
@@ -225,7 +225,7 @@ export function DateMultiSelect({
         <button
           type="button"
           onClick={nextMonth}
-          className="rounded-xl p-2 text-slate-600 hover:bg-slate-100"
+          className="rounded-xl p-2 text-[var(--text-secondary)] hover:bg-[var(--surface-strong)]"
           aria-label="Next month"
         >
           <ChevronRight size={20} />
@@ -244,7 +244,7 @@ export function DateMultiSelect({
         ].map((day) => (
           <div
             key={day}
-            className="py-2 text-xs font-semibold text-slate-400"
+            className="py-2 text-xs font-semibold text-[var(--text-faint)]"
           >
             {day}
           </div>
@@ -273,16 +273,16 @@ export function DateMultiSelect({
               onClick={() => toggleDate(date)}
               className={`relative aspect-square rounded-xl text-sm font-medium transition ${
                 disabled
-                  ? "cursor-not-allowed text-slate-300"
+                  ? "cursor-not-allowed text-[var(--text-faint)]"
                   : selected
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-700 hover:bg-slate-100"
+                    ? "bg-[var(--accent-pink)] text-white"
+                    : "text-[var(--text-secondary)] hover:bg-[var(--surface-strong)]"
               }`}
             >
               {date.getDate()}
 
               {todayDate && !selected && (
-                <span className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-emerald-600" />
+                <span className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-[var(--success)]" />
               )}
 
               {selected && (
@@ -296,12 +296,12 @@ export function DateMultiSelect({
         })}
       </div>
 
-      <div className="mt-4 flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-        <span className="text-sm text-slate-600">
+      <div className="mt-4 flex items-center justify-between rounded-xl bg-[var(--bg-elevated)] px-3 py-2">
+        <span className="text-sm text-[var(--text-secondary)]">
           Selected dates
         </span>
 
-        <span className="font-bold text-slate-900">
+        <span className="font-bold text-[var(--text-primary)]">
           {selectedCount}
         </span>
       </div>

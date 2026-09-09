@@ -9,7 +9,7 @@ import {
   Pencil,
   X,
 } from "lucide-react";
-import { getCalendarProgress, getStreakData, type DayProgress, type StreakData } from "../../services/streakService";
+import { getCalendarProgress, getProgressInRange, getStreakData, type DayProgress, type StreakData } from "../../services/streakService";
 import { Timestamp } from "firebase/firestore";
 import { getRoutineLogsForDate } from "../../services/routineLogService";
 import { getRoutines } from "../../services/routineService";
@@ -37,12 +37,12 @@ function dateFromKey(key: string): Date {
 }
 
 function getProgressColorStyle(percent: number): string {
-  if (percent === 0) return "#ebedf0";
-  if (percent < 25) return "#9be9a8";
-  if (percent < 50) return "#40c463";
-  if (percent < 75) return "#30a14e";
-  if (percent < 100) return "#216e39";
-  return "#22c55e";
+  if (percent === 0) return "var(--heat-0)";
+  if (percent < 25) return "var(--heat-1)";
+  if (percent < 50) return "var(--heat-2)";
+  if (percent < 75) return "var(--heat-3)";
+  if (percent < 100) return "var(--heat-4)";
+  return "var(--success)";
 }
 
 const MONTH_NAMES = [
@@ -60,6 +60,7 @@ export function CalendarView({ userId }: CalendarViewProps) {
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [progressMap, setProgressMap] = useState<Map<string, DayProgress>>(new Map());
+  const [yearProgressMap, setYearProgressMap] = useState<Map<string, DayProgress>>(new Map());
   const [streakData, setStreakData] = useState<StreakData | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(toDateKey(today));
   const [dayItems, setDayItems] = useState<DayItem[] | null>(null);
@@ -68,21 +69,27 @@ export function CalendarView({ userId }: CalendarViewProps) {
   const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
   const [allRoutines, setAllRoutines] = useState<Routine[]>([]);
 
-  const loadCalendar = useCallback(async () => {
-    setCalLoading(true);
+  const loadCalendar = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setCalLoading(true);
     try {
-      const [progress, streak, routines] = await Promise.all([
+      const heatStart = new Date();
+      heatStart.setDate(heatStart.getDate() - 364);
+      heatStart.setDate(heatStart.getDate() - heatStart.getDay());
+
+      const [progress, yearProgress, streak, routines] = await Promise.all([
         getCalendarProgress(userId, currentMonth.getFullYear(), currentMonth.getMonth()),
+        getProgressInRange(userId, heatStart, new Date()),
         getStreakData(userId),
         getRoutines(userId),
       ]);
       setProgressMap(progress);
+      setYearProgressMap(yearProgress);
       setStreakData(streak);
       setAllRoutines(routines);
     } catch (err) {
       console.error("Failed to load calendar data:", err);
     } finally {
-      setCalLoading(false);
+      if (!opts?.silent) setCalLoading(false);
     }
   }, [userId, currentMonth]);
 
@@ -130,6 +137,10 @@ export function CalendarView({ userId }: CalendarViewProps) {
   function handleEditSaved() {
     setEditingRoutine(null);
     if (selectedDay) void loadDayItems(selectedDay);
+    // Refresh the month colors, the year heatmap, and the streak cards so
+    // they reflect this log immediately instead of on next navigation/reload.
+    // "silent" so we don't flash the whole grid's loading spinner.
+    void loadCalendar({ silent: true });
   }
 
   function prevMonth() {
@@ -178,9 +189,9 @@ export function CalendarView({ userId }: CalendarViewProps) {
     <div className="space-y-6">
       {/* Streak Cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StreakCard label="Current Streak" value={streakData ? `${streakData.currentStreak}d` : "—"} icon={<Flame size={18} />} highlight={streakData ? streakData.currentStreak > 0 : false} color="text-orange-500" bg="bg-orange-50 border-orange-200" />
-        <StreakCard label="Longest Streak" value={streakData ? `${streakData.longestStreak}d` : "—"} icon={<Trophy size={18} />} highlight={false} color="text-amber-500" bg="bg-amber-50 border-amber-200" />
-        <StreakCard label="Active Days" value={streakData ? `${streakData.activeDatesThisYear.size}` : "—"} icon={<CalendarDays size={18} />} highlight={false} color="text-blue-500" bg="bg-blue-50 border-blue-200" />
+        <StreakCard label="Current Streak" value={streakData ? `${streakData.currentStreak}d` : "—"} icon={<Flame size={18} />} highlight={streakData ? streakData.currentStreak > 0 : false} color="text-[var(--accent-yellow)]" bg="bg-[var(--accent-yellow-soft)] border-[var(--accent-yellow-soft)]" />
+        <StreakCard label="Longest Streak" value={streakData ? `${streakData.longestStreak}d` : "—"} icon={<Trophy size={18} />} highlight={false} color="text-[var(--warning)]" bg="bg-[var(--warning-soft)] border-[var(--warning-soft)]" />
+        <StreakCard label="Active Days" value={streakData ? `${streakData.activeDatesThisYear.size}` : "—"} icon={<CalendarDays size={18} />} highlight={false} color="text-[var(--accent-blue)]" bg="bg-[var(--accent-blue-soft)] border-[var(--accent-blue-soft)]" />
         <StreakCard
           label="Last Active"
           value={streakData?.lastActiveDate
@@ -188,34 +199,34 @@ export function CalendarView({ userId }: CalendarViewProps) {
             : "—"}
           icon={<Zap size={18} />}
           highlight={false}
-          color="text-purple-500"
-          bg="bg-purple-50 border-purple-200"
+          color="text-[var(--accent-pink)]"
+          bg="bg-[var(--accent-pink-soft)] border-[var(--accent-pink-soft)]"
         />
       </div>
 
       {/* Monthly Calendar */}
-      <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm sm:p-6">
+      <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm sm:p-6">
         <div className="mb-5 flex items-center justify-between">
-          <button type="button" onClick={prevMonth} className="rounded-xl p-2 text-[#627067] transition hover:bg-[#f3f6f3]">
+          <button type="button" onClick={prevMonth} className="rounded-xl p-2 text-[var(--text-secondary)] transition hover:bg-[var(--bg-elevated)]">
             <ChevronLeft size={20} />
           </button>
-          <h2 className="text-lg font-bold text-[#17211b]">
+          <h2 className="text-lg font-bold text-[var(--text-primary)]">
             {MONTH_NAMES[currentMonth.getMonth()]} {currentMonth.getFullYear()}
           </h2>
-          <button type="button" onClick={nextMonth} className="rounded-xl p-2 text-[#627067] transition hover:bg-[#f3f6f3]" disabled={currentMonth >= new Date(today.getFullYear(), today.getMonth(), 1)}>
+          <button type="button" onClick={nextMonth} className="rounded-xl p-2 text-[var(--text-secondary)] transition hover:bg-[var(--bg-elevated)]" disabled={currentMonth >= new Date(today.getFullYear(), today.getMonth(), 1)}>
             <ChevronRight size={20} />
           </button>
         </div>
 
         <div className="grid grid-cols-7 gap-1 mb-2">
           {DAY_LABELS.map((d) => (
-            <div key={d} className="text-center text-xs font-semibold text-[#8a9590]">{d}</div>
+            <div key={d} className="text-center text-xs font-semibold text-[var(--text-muted)]">{d}</div>
           ))}
         </div>
 
         {calLoading ? (
           <div className="flex justify-center py-10">
-            <span className="h-6 w-6 animate-spin rounded-full border-2 border-[#d1e5d3] border-t-[#315c3d]" />
+            <span className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent-pink)]" />
           </div>
         ) : (
           <div className="grid grid-cols-7 gap-1">
@@ -234,52 +245,52 @@ export function CalendarView({ userId }: CalendarViewProps) {
                   onClick={() => !isFuture && handleDayClick(dateKey)}
                   disabled={isFuture}
                   title={progress ? `${percent}% complete` : ""}
-                  className={`relative flex flex-col items-center justify-center rounded-xl p-1 pt-1.5 pb-1 text-xs font-semibold transition ${isFuture ? "cursor-default opacity-30" : "cursor-pointer hover:ring-2 hover:ring-[#315c3d]/30"} ${isSelected ? "ring-2 ring-[#315c3d]" : ""} ${isToday ? "font-extrabold" : ""}`}
+                  className={`relative flex flex-col items-center justify-center rounded-xl p-1 pt-1.5 pb-1 text-xs font-semibold transition ${isFuture ? "cursor-default opacity-30" : "cursor-pointer hover:ring-2 hover:ring-[var(--accent-pink)]/30"} ${isSelected ? "ring-2 ring-[var(--accent-pink)]" : ""} ${isToday ? "font-extrabold" : ""}`}
                 >
-                  <span className={`mb-1 ${isToday ? "text-[#315c3d]" : "text-[#3a4a3f]"}`}>{day}</span>
-                  <span className="h-5 w-5 rounded-md transition-all duration-300" style={{ backgroundColor: isFuture ? "#ebedf0" : getProgressColorStyle(percent) }} />
+                  <span className={`mb-1 ${isToday ? "text-[var(--accent-pink)]" : "text-[var(--text-secondary)]"}`}>{day}</span>
+                  <span className="h-5 w-5 rounded-md transition-all duration-300" style={{ backgroundColor: isFuture ? "var(--heat-0)" : getProgressColorStyle(percent) }} />
                 </button>
               );
             })}
           </div>
         )}
 
-        <div className="mt-4 flex items-center gap-2 text-xs text-[#7a877e]">
+        <div className="mt-4 flex items-center gap-2 text-xs text-[var(--text-secondary)]">
           <span>Less</span>
           {[0, 20, 45, 70, 90, 100].map((p) => (
             <span key={p} className="h-3.5 w-3.5 rounded-sm" style={{ backgroundColor: getProgressColorStyle(p) }} />
           ))}
           <span>More</span>
-          <span className="ml-2 rounded-sm h-3.5 w-3.5 bg-[#22c55e]" />
+          <span className="ml-2 rounded-sm h-3.5 w-3.5 bg-[var(--success)]" />
           <span>100%</span>
         </div>
       </div>
 
       {/* Selected Day Detail */}
       {selectedDay && selectedDate && (
-        <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm sm:p-6">
-          <h3 className="font-bold text-[#17211b] mb-1">
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm sm:p-6">
+          <h3 className="font-bold text-[var(--text-primary)] mb-1">
             {selectedDate.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
           </h3>
 
           {selectedProgress && (
             <div className="mb-4 mt-2">
               <div className="flex items-center gap-3 mb-1">
-                <div className="flex-1 rounded-full bg-[#edf4ee] h-2">
+                <div className="flex-1 rounded-full bg-[var(--bg-elevated)] h-2">
                   <div className="h-2 rounded-full transition-all" style={{ width: `${selectedProgress.percent}%`, backgroundColor: getProgressColorStyle(selectedProgress.percent) }} />
                 </div>
-                <span className="text-sm font-bold text-[#315c3d]">{selectedProgress.percent}%</span>
+                <span className="text-sm font-bold text-[var(--accent-pink)]">{selectedProgress.percent}%</span>
               </div>
-              <p className="text-xs text-[#7a877e]">{selectedProgress.completedCount} of {selectedProgress.totalCount} routines completed</p>
+              <p className="text-xs text-[var(--text-secondary)]">{selectedProgress.completedCount} of {selectedProgress.totalCount} routines completed</p>
             </div>
           )}
 
           {dayLoading ? (
             <div className="flex justify-center py-6">
-              <span className="h-5 w-5 animate-spin rounded-full border-2 border-[#d1e5d3] border-t-[#315c3d]" />
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent-pink)]" />
             </div>
           ) : dayItems === null ? null : dayItems.length === 0 ? (
-            <p className="text-sm text-[#8a9590] py-2">No routines scheduled for this day.</p>
+            <p className="text-sm text-[var(--text-muted)] py-2">No routines scheduled for this day.</p>
           ) : (
             <div className="mt-3 space-y-2">
               {dayItems.map(({ routine, log }) => (
@@ -297,10 +308,10 @@ export function CalendarView({ userId }: CalendarViewProps) {
 
       {/* Edit panel — slide in when editing */}
       {editingRoutine && selectedDate && (
-        <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm sm:p-6">
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm sm:p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-[#17211b]">Edit Log</h3>
-            <button type="button" onClick={() => setEditingRoutine(null)} className="rounded-lg p-1.5 text-[#627067] hover:bg-[#f3f6f3]">
+            <h3 className="font-bold text-[var(--text-primary)]">Edit Log</h3>
+            <button type="button" onClick={() => setEditingRoutine(null)} className="rounded-lg p-1.5 text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]">
               <X size={18} />
             </button>
           </div>
@@ -314,22 +325,22 @@ export function CalendarView({ userId }: CalendarViewProps) {
       )}
 
       {/* Year Heatmap */}
-      <div className="rounded-3xl border border-[#e0e9e1] bg-white p-5 shadow-sm sm:p-6">
-        <h3 className="font-bold text-[#17211b] mb-4">Activity this year</h3>
+      <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm sm:p-6">
+        <h3 className="font-bold text-[var(--text-primary)] mb-4">Activity this year</h3>
         <div className="overflow-x-auto pb-2">
           <div className="flex gap-[3px]" style={{ minWidth: "max-content" }}>
             {heatmapWeeks.map((week, wi) => (
               <div key={wi} className="flex flex-col gap-[3px]">
                 {week.map(({ key, date }) => {
-                  const prog = streakData?.activeDatesThisYear.has(key) ? progressMap.get(key) : undefined;
+                  const prog = yearProgressMap.get(key);
                   const isFut = key > todayKey;
-                  const pct = prog?.percent ?? (streakData?.activeDatesThisYear.has(key) ? 50 : 0);
+                  const pct = prog?.percent ?? 0;
                   return (
                     <span
                       key={key}
-                      title={`${date.toLocaleDateString("en", { month: "short", day: "numeric" })}${prog ? ` — ${pct}%` : ""}`}
+                      title={`${date.toLocaleDateString("en", { month: "short", day: "numeric" })}${prog ? ` — ${prog.completedCount}/${prog.totalCount} (${pct}%)` : ""}`}
                       className="h-3 w-3 rounded-sm cursor-default"
-                      style={{ backgroundColor: isFut ? "transparent" : streakData?.activeDatesThisYear.has(key) ? getProgressColorStyle(pct) : "#ebedf0" }}
+                      style={{ backgroundColor: isFut ? "transparent" : prog ? getProgressColorStyle(pct) : "var(--heat-0)" }}
                     />
                   );
                 })}
@@ -348,24 +359,24 @@ function DayRoutineRow({ routine, log, onEdit }: { routine: Routine; log: Routin
   const status = log?.status ?? "pending";
 
   const statusStyle =
-    status === "yes" ? { dot: "bg-green-500", label: "text-green-600", text: "Done" } :
-    status === "no"  ? { dot: "bg-red-400",   label: "text-red-500",   text: "Missed" } :
-                       { dot: "bg-gray-300",   label: "text-gray-400",  text: "Pending" };
+    status === "yes" ? { dot: "bg-[var(--success)]", label: "text-[var(--success)]", text: "Done" } :
+    status === "no"  ? { dot: "bg-[var(--danger)]",   label: "text-[var(--danger)]",   text: "Missed" } :
+                       { dot: "bg-[var(--border-strong)]",   label: "text-[var(--text-faint)]",  text: "Pending" };
 
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-[#f5f8f5] px-3 py-3">
+    <div className="flex items-start gap-3 rounded-xl bg-[var(--bg)] px-3 py-3">
       <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${statusStyle.dot}`} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-[#2d3d32] truncate">{routine.title}</span>
+          <span className="text-sm font-semibold text-[var(--text-secondary)] truncate">{routine.title}</span>
           {routine.inputType === "number" && log?.value != null && (
-            <span className="shrink-0 rounded-full bg-[#e0ead1] px-2 py-0.5 text-xs font-bold text-[#315c3d]">
+            <span className="shrink-0 rounded-full bg-[var(--accent-yellow-soft)] px-2 py-0.5 text-xs font-bold text-[var(--accent-pink)]">
               {log.value}{routine.unit ? ` ${routine.unit}` : ""}
             </span>
           )}
         </div>
         {log?.remark ? (
-          <p className="mt-0.5 text-xs text-[#7a877e] truncate">{log.remark}</p>
+          <p className="mt-0.5 text-xs text-[var(--text-secondary)] truncate">{log.remark}</p>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -373,7 +384,7 @@ function DayRoutineRow({ routine, log, onEdit }: { routine: Routine; log: Routin
         <button
           type="button"
           onClick={onEdit}
-          className="rounded-lg p-1.5 text-[#627067] hover:bg-[#e8f0e9]"
+          className="rounded-lg p-1.5 text-[var(--text-secondary)] hover:bg-[var(--accent-pink-soft)]"
           title="Edit log"
         >
           <Pencil size={14} />
@@ -387,14 +398,14 @@ function DayRoutineRow({ routine, log, onEdit }: { routine: Routine; log: Routin
 
 function StreakCard({ label, value, icon, highlight, color, bg }: { label: string; value: string; icon: React.ReactNode; highlight: boolean; color: string; bg: string }) {
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${bg} ${highlight ? "ring-2 ring-orange-300" : ""}`}>
+    <div className={`rounded-2xl border p-4 shadow-sm ${bg} ${highlight ? "ring-2 ring-[var(--accent-yellow)]" : ""}`}>
       <div className={`mb-2 ${color}`}>{icon}</div>
-      <p className="text-xl font-bold text-[#17211b]">{value}</p>
-      <p className="mt-0.5 text-xs font-medium text-[#7a877e]">{label}</p>
+      <p className="text-xl font-bold text-[var(--text-primary)]">{value}</p>
+      <p className="mt-0.5 text-xs font-medium text-[var(--text-secondary)]">{label}</p>
       {highlight && (
         <div className="mt-2 flex gap-0.5">
           {Array.from({ length: Math.min(7, parseInt(value)) }).map((_, i) => (
-            <span key={i} className="h-1.5 w-1.5 rounded-full bg-orange-400" />
+            <span key={i} className="h-1.5 w-1.5 rounded-full bg-[var(--accent-yellow)]" />
           ))}
         </div>
       )}

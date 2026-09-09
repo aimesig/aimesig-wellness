@@ -164,7 +164,7 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-20 text-[#8a958d]">
+      <div className="flex justify-center py-20 text-[var(--text-muted)]">
         <Loader2 size={22} className="animate-spin" />
       </div>
     );
@@ -172,9 +172,9 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
 
   if (routines.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-[#cdd8cf] py-16 text-center">
-        <p className="text-sm font-medium text-[#8a958d]">No active routines yet</p>
-        <p className="mt-1 text-xs text-[#a5afa8]">Create routines in My Routines to track analytics</p>
+      <div className="rounded-2xl border border-dashed border-[var(--border)] py-16 text-center">
+        <p className="text-sm font-medium text-[var(--text-muted)]">No active routines yet</p>
+        <p className="mt-1 text-xs text-[var(--text-faint)]">Create routines in My Routines to track analytics</p>
       </div>
     );
   }
@@ -184,13 +184,13 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
       {/* Header + Add button */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-bold text-[#17211b]">Routine Analytics</h2>
-          <p className="text-xs text-[#7a877e]">Customizable goal tracking per routine</p>
+          <h2 className="text-base font-bold text-[var(--text-primary)]">Routine Analytics</h2>
+          <p className="text-xs text-[var(--text-secondary)]">Customizable goal tracking per routine</p>
         </div>
         <button
           type="button"
           onClick={() => setShowAdd((v) => !v)}
-          className="flex items-center gap-1.5 rounded-xl bg-[#1e3528] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#2a4a36]"
+          className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-pink)] px-3 py-2 text-xs font-semibold text-white transition hover:opacity-90"
         >
           <Plus size={14} />
           Add card
@@ -199,43 +199,43 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
 
       {/* Add-card form */}
       {showAdd && (
-        <div className="rounded-2xl border border-[#d5e3d8] bg-white p-5 shadow-sm">
-          <p className="mb-4 text-sm font-semibold text-[#17211b]">New analytics card</p>
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
+          <p className="mb-4 text-sm font-semibold text-[var(--text-primary)]">New analytics card</p>
           <div className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-[#627067]">Routine</label>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Routine</label>
               <div className="relative">
                 <select
                   value={selectedRoutineId}
                   onChange={(e) => setSelectedRoutineId(e.target.value)}
-                  className="w-full appearance-none rounded-xl border border-[#d0dbd2] bg-white px-3 py-2.5 pr-8 text-sm outline-none focus:border-[#3a7549]"
+                  className="w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 pr-8 text-sm outline-none focus:border-[var(--success)]"
                 >
                   {routines.map((r) => (
                     <option key={r.id} value={r.id}>{r.title}</option>
                   ))}
                 </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-[#8a958d]" />
+                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-[var(--text-muted)]" />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-[#627067]">Goal period</label>
+                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Goal period</label>
                 <div className="relative">
                   <select
                     value={goalPeriod}
                     onChange={(e) => setGoalPeriod(e.target.value as GoalPeriod)}
-                    className="w-full appearance-none rounded-xl border border-[#d0dbd2] bg-white px-3 py-2.5 pr-8 text-sm outline-none focus:border-[#3a7549]"
+                    className="w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 pr-8 text-sm outline-none focus:border-[var(--success)]"
                   >
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
                     <option value="yearly">Yearly</option>
                   </select>
-                  <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-[#8a958d]" />
+                  <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-[var(--text-muted)]" />
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-[#627067]">
+                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
                   {routines.find((r) => r.id === selectedRoutineId)?.inputType === "number"
                     ? "Target value"
                     : "Target days"}
@@ -245,13 +245,13 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
                   value={goalTarget}
                   onChange={(e) => setGoalTarget(e.target.value)}
                   placeholder="e.g. 5"
-                  className="w-full rounded-xl border border-[#d0dbd2] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3a7549] placeholder:text-[#b0b9b3]"
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-sm outline-none focus:border-[var(--success)] placeholder:text-[var(--text-faint)]"
                 />
               </div>
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-medium text-[#627067]">Heatmap range</label>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Heatmap range</label>
               <div className="flex flex-wrap gap-2">
                 {(["7d", "30d", "3m", "1y", "lifetime"] as HeatmapRange[]).map((r) => (
                   <button
@@ -260,8 +260,8 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
                     onClick={() => setHeatmapRange(r)}
                     className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                       heatmapRange === r
-                        ? "bg-[#1e3528] text-white"
-                        : "bg-[#f3f6f3] text-[#627067] hover:bg-[#e8f0e9]"
+                        ? "bg-[var(--accent-pink)] text-white"
+                        : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--accent-pink-soft)]"
                     }`}
                   >
                     {r === "7d" ? "7 days" : r === "30d" ? "30 days" : r === "3m" ? "3 months" : r === "1y" ? "1 year" : "Lifetime"}
@@ -275,7 +275,7 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
                 type="button"
                 onClick={() => void handleAdd()}
                 disabled={adding || !goalTarget}
-                className="flex items-center gap-1.5 rounded-xl bg-[#1e3528] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-pink)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
                 {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                 Add
@@ -283,7 +283,7 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
               <button
                 type="button"
                 onClick={() => setShowAdd(false)}
-                className="rounded-xl border border-[#d0dbd2] px-4 py-2 text-sm font-semibold text-[#627067]"
+                className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text-secondary)]"
               >
                 Cancel
               </button>
@@ -294,10 +294,10 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
 
       {/* Analytics cards */}
       {cards.length === 0 && !showAdd ? (
-        <div className="rounded-2xl border border-dashed border-[#cdd8cf] py-12 text-center">
-          <Target size={28} className="mx-auto mb-3 text-[#9ab5a0]" />
-          <p className="text-sm font-medium text-[#8a958d]">No analytics cards yet</p>
-          <p className="mt-1 text-xs text-[#a5afa8]">Click "Add card" to start tracking a routine goal</p>
+        <div className="rounded-2xl border border-dashed border-[var(--border)] py-12 text-center">
+          <Target size={28} className="mx-auto mb-3 text-[var(--text-faint)]" />
+          <p className="text-sm font-medium text-[var(--text-muted)]">No analytics cards yet</p>
+          <p className="mt-1 text-xs text-[var(--text-faint)]">Click "Add card" to start tracking a routine goal</p>
         </div>
       ) : (
         <div className="space-y-5">
@@ -358,9 +358,9 @@ function RoutineAnalyticsCard({
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-[#e0e8e1] bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
         <div className="flex justify-center py-8">
-          <Loader2 size={20} className="animate-spin text-[#8a958d]" />
+          <Loader2 size={20} className="animate-spin text-[var(--text-muted)]" />
         </div>
       </div>
     );
@@ -369,14 +369,14 @@ function RoutineAnalyticsCard({
   const isNumber = routine.inputType === "number";
 
   return (
-    <div className="rounded-2xl border border-[#e0e8e1] bg-white shadow-sm overflow-hidden">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-sm overflow-hidden">
       {/* Card header */}
-      <div className="flex items-start justify-between gap-3 border-b border-[#f0f4f1] px-5 py-4">
+      <div className="flex items-start justify-between gap-3 border-b border-[var(--bg-elevated)] px-5 py-4">
         <div>
-          <p className="font-semibold text-[#17211b]">{routine.title}</p>
-          <p className="mt-0.5 text-xs text-[#8a958d]">
+          <p className="font-semibold text-[var(--text-primary)]">{routine.title}</p>
+          <p className="mt-0.5 text-xs text-[var(--text-muted)]">
             {isNumber ? "Numeric tracking" : "Yes/No tracking"} · Goal:{" "}
-            <span className="font-semibold text-[#3a7549]">
+            <span className="font-semibold text-[var(--success)]">
               {card.goalTarget}{isNumber && routine.unit ? ` ${routine.unit}` : " days"} / {card.goalPeriod}
             </span>
           </p>
@@ -384,7 +384,7 @@ function RoutineAnalyticsCard({
         <button
           type="button"
           onClick={onDelete}
-          className="rounded-lg p-1.5 text-[#b0b9b3] transition hover:bg-red-50 hover:text-red-500"
+          className="rounded-lg p-1.5 text-[var(--text-faint)] transition hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
         >
           <Trash2 size={15} />
         </button>
@@ -401,7 +401,7 @@ function RoutineAnalyticsCard({
           <>
             {/* Heatmap range selector */}
             <div>
-              <p className="mb-2 text-xs font-semibold text-[#627067]">Heatmap range</p>
+              <p className="mb-2 text-xs font-semibold text-[var(--text-secondary)]">Heatmap range</p>
               <div className="flex flex-wrap gap-1.5">
                 {(["7d", "30d", "3m", "1y", "lifetime"] as HeatmapRange[]).map((r) => (
                   <button
@@ -410,8 +410,8 @@ function RoutineAnalyticsCard({
                     onClick={() => setHeatmapRange(r)}
                     className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
                       heatmapRange === r
-                        ? "bg-[#1e3528] text-white"
-                        : "bg-[#f3f6f3] text-[#627067] hover:bg-[#e8f0e9]"
+                        ? "bg-[var(--accent-pink)] text-white"
+                        : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--accent-pink-soft)]"
                     }`}
                   >
                     {r === "7d" ? "7d" : r === "30d" ? "30d" : r === "3m" ? "3mo" : r === "1y" ? "1yr" : "All"}
@@ -488,27 +488,27 @@ function GoalSummary({
   const unit = isNumber ? (routine.unit || "units") : "days";
 
   return (
-    <div className="rounded-xl bg-[#f5f9f5] p-4">
+    <div className="rounded-xl bg-[var(--bg-elevated)] p-4">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <p className="text-xs text-[#8a958d] capitalize">{card.goalPeriod} goal progress</p>
-          <p className="text-2xl font-bold text-[#17211b]">
+          <p className="text-xs text-[var(--text-muted)] capitalize">{card.goalPeriod} goal progress</p>
+          <p className="text-2xl font-bold text-[var(--text-primary)]">
             {isNumber ? periodActual.toFixed(1) : periodActual}
-            <span className="ml-1 text-sm font-medium text-[#8a958d]">/ {card.goalTarget} {unit}</span>
+            <span className="ml-1 text-sm font-medium text-[var(--text-muted)]">/ {card.goalTarget} {unit}</span>
           </p>
         </div>
         <div className={`rounded-xl px-3 py-1.5 text-xs font-bold ${
-          met ? "bg-[#dcf0e1] text-[#2a5c38]" : "bg-[#fff3e0] text-[#b45309]"
+          met ? "bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]" : "bg-[var(--warning-soft)] text-[var(--warning)]"
         }`}>
           {pct}% {met ? "✓" : ""}
         </div>
       </div>
-      <div className="h-1.5 w-full rounded-full bg-[#dce8de]">
+      <div className="h-1.5 w-full rounded-full bg-[var(--border)]">
         <div
           className="h-1.5 rounded-full transition-all duration-500"
           style={{
             width: `${pct}%`,
-            backgroundColor: met ? "#3a7549" : "#f59e0b",
+            backgroundColor: met ? "var(--success)" : "var(--warning)",
           }}
         />
       </div>
@@ -545,9 +545,9 @@ function NumberLineChart({
 
   if (chartData.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-[#cdd8cf] py-8 text-center">
-        <TrendingUp size={22} className="mx-auto mb-2 text-[#9ab5a0]" />
-        <p className="text-xs text-[#8a958d]">No numeric data logged yet</p>
+      <div className="rounded-xl border border-dashed border-[var(--border)] py-8 text-center">
+        <TrendingUp size={22} className="mx-auto mb-2 text-[var(--text-faint)]" />
+        <p className="text-xs text-[var(--text-muted)]">No numeric data logged yet</p>
       </div>
     );
   }
@@ -556,44 +556,44 @@ function NumberLineChart({
     <div>
       <div className="mb-3 flex items-center gap-4 text-xs">
         <span className="flex items-center gap-1.5">
-          <span className="h-0.5 w-5 bg-[#3a7549] rounded" />
-          <span className="text-[#627067]">Actual{unit ? ` (${unit})` : ""}</span>
+          <span className="h-0.5 w-5 bg-[var(--success)] rounded" />
+          <span className="text-[var(--text-secondary)]">Actual{unit ? ` (${unit})` : ""}</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-0.5 w-5 bg-[#bfc8c1] rounded" style={{ borderTop: "2px dashed #bfc8c1", background: "none" }} />
-          <span className="text-[#627067]">Goal ({goalLine}{unit ? ` ${unit}` : ""})</span>
+          <span className="h-0.5 w-5 bg-[var(--text-faint)] rounded" style={{ borderTop: "2px dashed var(--text-faint)", background: "none" }} />
+          <span className="text-[var(--text-secondary)]">Goal ({goalLine}{unit ? ` ${unit}` : ""})</span>
         </span>
       </div>
       <div className="h-52">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#edf4ee" />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--bg-elevated)" />
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 10, fill: "#8a958d" }}
+              tick={{ fontSize: 10, fill: "var(--text-muted)" }}
               interval="preserveStartEnd"
             />
             <YAxis
-              tick={{ fontSize: 10, fill: "#8a958d" }}
+              tick={{ fontSize: 10, fill: "var(--text-muted)" }}
               tickFormatter={(v) => unit ? `${v}${unit}` : String(v)}
             />
             <Tooltip
               formatter={(v) => [`${v ?? ""}${unit ? ` ${unit}` : ""}`, "Actual"]}
-              contentStyle={{ borderRadius: 10, border: "1px solid #e0e8e1", fontSize: 12 }}
+              contentStyle={{ borderRadius: 10, border: "1px solid var(--border)", fontSize: 12 }}
             />
             <ReferenceLine
               y={goalLine}
-              stroke="#c8d4cb"
+              stroke="var(--text-faint)"
               strokeDasharray="5 3"
               strokeWidth={1.5}
-              label={{ value: `Goal: ${goalLine}${unit}`, fill: "#9ab5a0", fontSize: 10, position: "right" }}
+              label={{ value: `Goal: ${goalLine}${unit}`, fill: "var(--text-faint)", fontSize: 10, position: "right" }}
             />
             <Line
               type="monotone"
               dataKey="actual"
-              stroke="#3a7549"
+              stroke="var(--success)"
               strokeWidth={2}
-              dot={{ fill: "#3a7549", r: 3 }}
+              dot={{ fill: "var(--success)", r: 3 }}
               activeDot={{ r: 5 }}
             />
           </LineChart>
@@ -683,19 +683,19 @@ function YesNoHeatmap({
   if (range === "7d") {
     return (
       <div>
-        <div className="mb-3 flex items-center gap-3 text-xs text-[#8a958d]">
-          <span className="font-semibold text-[#17211b]">{pct}%</span> completion
-          <span className="text-[#3a7549]">{yesCount} yes</span>
-          <span className="text-red-500">{noCount} no</span>
+        <div className="mb-3 flex items-center gap-3 text-xs text-[var(--text-muted)]">
+          <span className="font-semibold text-[var(--text-primary)]">{pct}%</span> completion
+          <span className="text-[var(--success)]">{yesCount} yes</span>
+          <span className="text-[var(--danger)]">{noCount} no</span>
         </div>
         <div className="flex gap-2">
           {dayData.map((d) => {
             if (!d) return null;
             const color =
-              d.status === "yes" ? "#22c55e"
-              : d.status === "no" ? "#ef4444"
-              : d.status === "unscheduled" ? "#f3f4f6"
-              : "#f3f4f6";
+              d.status === "yes" ? "var(--success)"
+              : d.status === "no" ? "var(--danger)"
+              : d.status === "unscheduled" ? "var(--bg-elevated)"
+              : "var(--bg-elevated)";
             const label = d.date.toLocaleDateString("en", { weekday: "short", day: "numeric" });
             return (
               <div key={d.key} className="flex flex-col items-center gap-1" title={`${label}: ${d.status}`}>
@@ -703,7 +703,7 @@ function YesNoHeatmap({
                   className="h-9 w-9 rounded-lg transition-all"
                   style={{ backgroundColor: color }}
                 />
-                <span className="text-[9px] text-[#8a958d]">
+                <span className="text-[9px] text-[var(--text-muted)]">
                   {d.date.toLocaleDateString("en", { weekday: "narrow" })}
                 </span>
               </div>
@@ -717,12 +717,12 @@ function YesNoHeatmap({
 
   return (
     <div>
-      <div className="mb-3 flex items-center gap-4 text-xs text-[#8a958d]">
+      <div className="mb-3 flex items-center gap-4 text-xs text-[var(--text-muted)]">
         <span>
-          <span className="font-semibold text-[#17211b]">{pct}%</span> completion rate
+          <span className="font-semibold text-[var(--text-primary)]">{pct}%</span> completion rate
         </span>
-        <span className="text-[#3a7549] font-medium">{yesCount} yes</span>
-        <span className="text-red-500 font-medium">{noCount} no</span>
+        <span className="text-[var(--success)] font-medium">{yesCount} yes</span>
+        <span className="text-[var(--danger)] font-medium">{noCount} no</span>
         <span>{scheduledCount} scheduled</span>
       </div>
 
@@ -732,7 +732,7 @@ function YesNoHeatmap({
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <div style={{ height: 14 }} /> {/* month row spacer */}
             {WEEK_DAYS.map((d, i) => (
-              <div key={i} style={{ height: 13, fontSize: 9, color: "#8a958d", lineHeight: "13px", textAlign: "center" }}>
+              <div key={i} style={{ height: 13, fontSize: 9, color: "var(--text-muted)", lineHeight: "13px", textAlign: "center" }}>
                 {i % 2 === 1 ? d : ""}
               </div>
             ))}
@@ -744,16 +744,16 @@ function YesNoHeatmap({
             return (
               <div key={wi} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {/* Month label */}
-                <div style={{ height: 14, fontSize: 9, color: "#8a958d", whiteSpace: "nowrap", overflow: "visible" }}>
+                <div style={{ height: 14, fontSize: 9, color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "visible" }}>
                   {monthLabel?.text ?? ""}
                 </div>
                 {week.map((d, di) => {
                   if (!d) return <div key={di} style={{ height: 13, width: 13 }} />;
                   const color =
-                    d.status === "yes" ? "#22c55e"
-                    : d.status === "no" ? "#ef4444"
+                    d.status === "yes" ? "var(--success)"
+                    : d.status === "no" ? "var(--danger)"
                     : d.status === "future" ? "transparent"
-                    : "#e9ebe9";
+                    : "var(--border)";
                   const opacity = d.status === "unscheduled" ? 0.4 : 1;
                   return (
                     <div
@@ -782,15 +782,15 @@ function YesNoHeatmap({
 
 function Legend() {
   return (
-    <div className="mt-3 flex items-center gap-3 text-xs text-[#8a958d]">
+    <div className="mt-3 flex items-center gap-3 text-xs text-[var(--text-muted)]">
       <span className="flex items-center gap-1">
-        <span className="h-3 w-3 rounded-sm bg-[#22c55e]" /> Yes
+        <span className="h-3 w-3 rounded-sm bg-[var(--success)]" /> Yes
       </span>
       <span className="flex items-center gap-1">
-        <span className="h-3 w-3 rounded-sm bg-[#ef4444]" /> No / Pending
+        <span className="h-3 w-3 rounded-sm bg-[var(--danger)]" /> No / Pending
       </span>
       <span className="flex items-center gap-1">
-        <span className="h-3 w-3 rounded-sm bg-[#e9ebe9]" /> Not scheduled
+        <span className="h-3 w-3 rounded-sm bg-[var(--border)]" /> Not scheduled
       </span>
     </div>
   );

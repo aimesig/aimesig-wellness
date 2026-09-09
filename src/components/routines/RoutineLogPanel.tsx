@@ -191,49 +191,49 @@ export function RoutineLogPanel({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white p-6">
+      <div className="flex items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6">
         <Loader2
           size={24}
-          className="animate-spin text-slate-500"
+          className="animate-spin text-[var(--text-muted)]"
         />
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
       <div className="mb-5">
-        <h3 className="text-lg font-bold text-slate-900">
+        <h3 className="text-lg font-bold text-[var(--text-primary)]">
           {routine.title}
         </h3>
 
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-[var(--text-muted)]">
           Record your routine status and remarks.
         </p>
       </div>
 
       {error && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mb-4 rounded-xl border border-[var(--danger-soft)] bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}
 
       {message && (
-        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <div className="mb-4 rounded-xl border border-[var(--success-soft)] bg-[var(--success-soft)] px-4 py-3 text-sm text-[var(--success)]">
           {message}
         </div>
       )}
 
       {/* Selected Date */}
       <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700">
+        <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
           Date
         </label>
 
         <div className="relative">
           <CalendarDays
             size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]"
           />
 
           <input
@@ -250,11 +250,11 @@ export function RoutineLogPanel({
                 : undefined
             }
             onChange={handleDateChange}
-            className="w-full rounded-xl border border-slate-300 px-4 py-3 pl-10 text-sm outline-none focus:border-slate-500"
+            className="w-full rounded-xl border border-[var(--border)] px-4 py-3 pl-10 text-sm outline-none focus:border-[var(--border-strong)]"
           />
         </div>
 
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-[var(--text-faint)]">
           Select the date for which you want to record
           this routine.
         </p>
@@ -262,7 +262,7 @@ export function RoutineLogPanel({
 
       {/* Status */}
       <div className="mt-5">
-        <label className="mb-2 block text-sm font-medium text-slate-700">
+        <label className="mb-2 block text-sm font-medium text-[var(--text-secondary)]">
           Status
         </label>
 
@@ -272,8 +272,8 @@ export function RoutineLogPanel({
             onClick={() => setStatus("yes")}
             className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
               status === "yes"
-                ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                ? "border-[var(--success)] bg-[var(--success-soft)] text-[var(--success)]"
+                : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
             }`}
           >
             <Check
@@ -288,8 +288,8 @@ export function RoutineLogPanel({
             onClick={() => setStatus("no")}
             className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
               status === "no"
-                ? "border-red-500 bg-red-50 text-red-700"
-                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                ? "border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)]"
+                : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
             }`}
           >
             <X
@@ -304,8 +304,8 @@ export function RoutineLogPanel({
             onClick={() => setStatus("pending")}
             className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
               status === "pending"
-                ? "border-amber-500 bg-amber-50 text-amber-700"
-                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                ? "border-[var(--warning)] bg-[var(--warning-soft)] text-[var(--warning)]"
+                : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
             }`}
           >
             Pending
@@ -316,7 +316,7 @@ export function RoutineLogPanel({
       {/* Numeric value */}
       {routine.inputType === "number" && (
         <div className="mt-5">
-          <label className="mb-1 block text-sm font-medium text-slate-700">
+          <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
             Value
             {routine.unit && ` (${routine.unit})`}
           </label>
@@ -332,14 +332,14 @@ export function RoutineLogPanel({
                 ? `Enter value in ${routine.unit}`
                 : "Enter value"
             }
-            className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500"
+            className="w-full rounded-xl border border-[var(--border)] px-4 py-3 text-sm outline-none focus:border-[var(--border-strong)]"
           />
         </div>
       )}
 
       {/* Remarks */}
       <div className="mt-5">
-        <label className="mb-1 block text-sm font-medium text-slate-700">
+        <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
           Remarks
         </label>
 
@@ -350,7 +350,7 @@ export function RoutineLogPanel({
           }
           placeholder="Add any remarks..."
           rows={3}
-          className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500"
+          className="w-full resize-none rounded-xl border border-[var(--border)] px-4 py-3 text-sm outline-none focus:border-[var(--border-strong)]"
         />
       </div>
 
@@ -359,7 +359,7 @@ export function RoutineLogPanel({
         type="button"
         onClick={() => void handleSave()}
         disabled={saving}
-        className="mt-5 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+        className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
       >
         {saving ? (
           <Loader2

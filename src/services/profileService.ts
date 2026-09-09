@@ -44,12 +44,12 @@ export function getBMICategory(bmi: number): {
   description: string;
 } {
   if (bmi < 18.5)
-    return { label: "Underweight", color: "#3b82f6", description: "Below healthy range" };
+    return { label: "Underweight", color: "var(--accent-blue)", description: "Below healthy range" };
   if (bmi < 25)
-    return { label: "Normal weight", color: "#22c55e", description: "Healthy range" };
+    return { label: "Normal weight", color: "var(--success)", description: "Healthy range" };
   if (bmi < 30)
-    return { label: "Overweight", color: "#f59e0b", description: "Above healthy range" };
-  return { label: "Obese", color: "#ef4444", description: "Significantly above healthy range" };
+    return { label: "Overweight", color: "var(--warning)", description: "Above healthy range" };
+  return { label: "Obese", color: "var(--danger)", description: "Significantly above healthy range" };
 }
 
 export function calculateAge(dateOfBirth: string): number | null {

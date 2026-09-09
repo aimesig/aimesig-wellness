@@ -55,14 +55,14 @@ export function YearDateMultiSelect({
 
   return (
     <div>
-      <label className="mb-2 block text-sm font-medium text-slate-700">
+      <label className="mb-2 block text-sm font-medium text-[var(--text-secondary)]">
         Repeat on dates each year
       </label>
 
       {/* Picker row */}
       <div className="flex items-end gap-2">
         <div className="flex-1">
-          <label className="mb-1 block text-xs text-slate-500">Month</label>
+          <label className="mb-1 block text-xs text-[var(--text-muted)]">Month</label>
           <select
             value={pickMonth}
             onChange={(e) => {
@@ -70,7 +70,7 @@ export function YearDateMultiSelect({
               setPickMonth(m);
               setPickDay((d) => Math.min(d, daysInMonth(m)));
             }}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-sm"
           >
             {MONTHS.map((name, i) => (
               <option key={i + 1} value={i + 1}>
@@ -81,11 +81,11 @@ export function YearDateMultiSelect({
         </div>
 
         <div className="w-24">
-          <label className="mb-1 block text-xs text-slate-500">Day</label>
+          <label className="mb-1 block text-xs text-[var(--text-muted)]">Day</label>
           <select
             value={clampedDay}
             onChange={(e) => setPickDay(Number(e.target.value))}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-sm"
           >
             {Array.from({ length: maxDay }, (_, i) => i + 1).map((d) => (
               <option key={d} value={d}>
@@ -98,7 +98,7 @@ export function YearDateMultiSelect({
         <button
           type="button"
           onClick={addDate}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-pink)] px-3 py-2.5 text-sm font-semibold text-white hover:opacity-90"
         >
           <Plus size={16} />
           Add
@@ -111,13 +111,13 @@ export function YearDateMultiSelect({
           {selectedDates.map((yd, i) => (
             <span
               key={yearDateKey(yd)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-pink)] px-3 py-1 text-xs font-semibold text-white"
             >
               {MONTHS[yd.month - 1]} {yd.day}
               <button
                 type="button"
                 onClick={() => removeDate(i)}
-                className="ml-0.5 rounded-full hover:text-slate-300"
+                className="ml-0.5 rounded-full hover:text-[var(--text-faint)]"
                 aria-label={`Remove ${MONTHS[yd.month - 1]} ${yd.day}`}
               >
                 <X size={12} />
@@ -127,13 +127,13 @@ export function YearDateMultiSelect({
         </div>
       )}
 
-      <div className="mt-3 flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-        <span className="text-sm text-slate-600">Selected dates</span>
-        <span className="font-bold text-slate-900">{selectedDates.length}</span>
+      <div className="mt-3 flex items-center justify-between rounded-xl bg-[var(--bg-elevated)] px-3 py-2">
+        <span className="text-sm text-[var(--text-secondary)]">Selected dates</span>
+        <span className="font-bold text-[var(--text-primary)]">{selectedDates.length}</span>
       </div>
 
       {selectedDates.length === 0 && (
-        <p className="mt-1.5 text-xs text-slate-400">
+        <p className="mt-1.5 text-xs text-[var(--text-faint)]">
           Pick a month and day, then press Add. Leave empty to repeat on the start date.
         </p>
       )}
