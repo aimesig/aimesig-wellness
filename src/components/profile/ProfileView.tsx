@@ -16,6 +16,7 @@ import {
   Save,
   Loader2,
   AlertCircle,
+  LogOut,
 } from "lucide-react";
 import {
   getProfile,
@@ -34,6 +35,7 @@ interface ProfileViewProps {
   userId: string;
   userName: string;
   onNameChange?: (name: string) => void;
+  onSignOut?: () => void;
 }
 
 const EMPTY_PROFILE: FitnessProfile = {
@@ -71,7 +73,7 @@ const HEALTH_CONDITIONS_LIST = [
   "Thyroid Disorder", "PCOS", "Arthritis", "Back Pain", "None",
 ];
 
-export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps) {
+export function ProfileView({ userId, userName, onNameChange, onSignOut }: ProfileViewProps) {
   const { theme, setTheme } = useTheme();
   const [profile, setProfile] = useState<FitnessProfile | null>(null);
   const [editing, setEditing] = useState(false);
@@ -302,6 +304,16 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
             Set up profile
           </button>
         </div>
+        {onSignOut && (
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="flex w-full items-center justify-center gap-2 rounded-3xl border border-[var(--danger-soft)] bg-[var(--bg-elevated)] px-5 py-3.5 text-sm font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)] transition shadow-sm"
+          >
+            <LogOut size={16} />
+            Sign Out
+          </button>
+        )}
       </div>
     );
   }
@@ -436,6 +448,18 @@ export function ProfileView({ userId, userName, onNameChange }: ProfileViewProps
             ))}
           </div>
         </div>
+      )}
+
+      {/* Sign Out */}
+      {onSignOut && (
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="flex w-full items-center justify-center gap-2 rounded-3xl border border-[var(--danger-soft)] bg-[var(--bg-elevated)] px-5 py-3.5 text-sm font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)] transition shadow-sm"
+        >
+          <LogOut size={16} />
+          Sign Out
+        </button>
       )}
     </div>
   );

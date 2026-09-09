@@ -91,7 +91,6 @@ const NAV: { label: NavTab; icon: typeof Home }[] = [
   { label: "My Routines", icon: BookOpen    },
   { label: "Calendar",    icon: CalendarDays},
   { label: "Analytics",   icon: BarChart3   },
-  { label: "Profile",     icon: User        },
 ];
 
 // ─── dashboard ─────────────────────────────────────────────────────────────
