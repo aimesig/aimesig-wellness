@@ -21,6 +21,7 @@ import {
 
 import app, { db } from "../lib/firebase";
 import type { RoutineLog, RoutineStatus } from "../types/routine";
+import { compressImage } from "../utils/compressImage";
 
 function routineLogsCollection(userId: string) {
   return collection(db, "users", userId, "routineLogs");
@@ -36,11 +37,12 @@ export async function uploadRoutineLogImage(
   date: Timestamp,
   file: File,
 ): Promise<string> {
-  const storage = getStorage();
+  const compressed = await compressImage(file);
+  const storage = getStorage(app);
   const dateISO = date.toDate().toISOString().slice(0, 10); // YYYY-MM-DD
-  const storagePath = `routineLogs/${userId}/${routineId}/${dateISO}/${file.name}`;
+  const storagePath = `routineLogs/${userId}/${routineId}/${dateISO}/${compressed.name}`;
   const storageRef = ref(storage, storagePath);
-  await uploadBytes(storageRef, file);
+  await uploadBytes(storageRef, compressed, { contentType: compressed.type });
   return getDownloadURL(storageRef);
 }
 
