@@ -11,12 +11,51 @@ import {
   doc,
   where,
 } from "firebase/firestore";
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage";
 
-import { db } from "../lib/firebase";
+import app, { db } from "../lib/firebase";
 import type { RoutineLog, RoutineStatus } from "../types/routine";
 
 function routineLogsCollection(userId: string) {
   return collection(db, "users", userId, "routineLogs");
+}
+
+/**
+ * Upload an image file to Firebase Storage and return its download URL.
+ * Path: routineLogs/{userId}/{routineId}/{dateISO}/{filename}
+ */
+export async function uploadRoutineLogImage(
+  userId: string,
+  routineId: string,
+  date: Timestamp,
+  file: File,
+): Promise<string> {
+  const storage = getStorage();
+  const dateISO = date.toDate().toISOString().slice(0, 10); // YYYY-MM-DD
+  const storagePath = `routineLogs/${userId}/${routineId}/${dateISO}/${file.name}`;
+  const storageRef = ref(storage, storagePath);
+  await uploadBytes(storageRef, file);
+  return getDownloadURL(storageRef);
+}
+
+/**
+ * Delete an image from Firebase Storage by its download URL.
+ * Safe to call even if the file has already been removed.
+ */
+export async function deleteRoutineLogImage(imageUrl: string): Promise<void> {
+  try {
+    const storage = getStorage(app);
+    const storageRef = ref(storage, imageUrl);
+    await deleteObject(storageRef);
+  } catch {
+    // Ignore "object-not-found" — the file may have been deleted already.
+  }
 }
 
 export interface RoutineLogInput {
@@ -25,6 +64,7 @@ export interface RoutineLogInput {
   status: RoutineStatus;
   remark: string;
   value: number | null;
+  imageUrl: string | null;
 }
 
 export async function getRoutineLog(
@@ -76,6 +116,7 @@ export async function saveRoutineLog(
       status: input.status,
       remark: input.remark.trim(),
       value: input.value,
+      imageUrl: input.imageUrl,
       updatedAt: serverTimestamp(),
     });
 
@@ -88,6 +129,7 @@ export async function saveRoutineLog(
     status: input.status,
     remark: input.remark.trim(),
     value: input.value,
+    imageUrl: input.imageUrl,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

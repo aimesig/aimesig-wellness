@@ -56,6 +56,8 @@ export interface RoutineLog {
   status: RoutineStatus;
   remark: string;
   value: number | null;
+  /** Download URL of an attached image stored in Firebase Storage, or null. */
+  imageUrl: string | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

@@ -1,12 +1,23 @@
-import { useEffect, useState } from "react";
-import { CalendarDays, Check, Loader2, Save, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  CalendarDays,
+  Check,
+  ImagePlus,
+  Loader2,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Timestamp } from "firebase/firestore";
 
 import type { Routine, RoutineStatus } from "../../types/routine";
+import { ImageLightbox } from "../ui/ImageLightbox";
 import {
   deleteRoutineLog,
+  deleteRoutineLogImage,
   getRoutineLog,
   saveRoutineLog,
+  uploadRoutineLogImage,
 } from "../../services/routineLogService";
 
 interface RoutineLogPanelProps {
@@ -20,23 +31,17 @@ function formatDateForInput(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
-
   return `${year}-${month}-${day}`;
 }
 
 function dateFromInput(value: string): Date {
   const [year, month, day] = value.split("-").map(Number);
-
   return new Date(year, month - 1, day);
 }
 
 function toDayTimestamp(date: Date): Timestamp {
   return Timestamp.fromDate(
-    new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate(),
-    ),
+    new Date(date.getFullYear(), date.getMonth(), date.getDate()),
   );
 }
 
@@ -46,28 +51,38 @@ export function RoutineLogPanel({
   date,
   onSaved,
 }: RoutineLogPanelProps) {
-  const [selectedDate, setSelectedDate] = useState(
-    formatDateForInput(date),
-  );
-
-  const [status, setStatus] =
-    useState<RoutineStatus>("pending");
-
+  const [selectedDate, setSelectedDate] = useState(formatDateForInput(date));
+  const [status, setStatus] = useState<RoutineStatus>("pending");
   const [remark, setRemark] = useState("");
   const [value, setValue] = useState("");
 
-  const [existingLogId, setExistingLogId] = useState<string | null>(null);
+  // Image state
+  /** URL already saved in Firestore (loaded from an existing log). */
+  const [savedImageUrl, setSavedImageUrl] = useState<string | null>(null);
+  /** New file chosen by the user but not yet uploaded. */
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  /** Object URL for previewing pendingImage locally. */
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  /** Whether the user wants to remove the existing saved image on next save. */
+  const [removeImage, setRemoveImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
+  const [existingLogId, setExistingLogId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const selectedDateObject = dateFromInput(selectedDate);
 
-
+  // Clean up local object URL when component unmounts or preview changes.
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,39 +99,36 @@ export function RoutineLogPanel({
           toDayTimestamp(selectedDateObject),
         );
 
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
 
         if (log) {
           setExistingLogId(log.id);
           setStatus(log.status);
           setRemark(log.remark ?? "");
-
           setValue(
             log.value === null || log.value === undefined
               ? ""
               : String(log.value),
           );
+          setSavedImageUrl(log.imageUrl ?? null);
         } else {
           setExistingLogId(null);
           setStatus("pending");
           setRemark("");
           setValue("");
+          setSavedImageUrl(null);
         }
-      } catch (err) {
-        console.error(
-          "Failed to load routine log:",
-          err,
-        );
 
-        if (!cancelled) {
-          setError("Unable to load routine log.");
-        }
+        // Reset pending image state whenever we load a new date's log.
+        setPendingImage(null);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(null);
+        setRemoveImage(false);
+      } catch (err) {
+        console.error("Failed to load routine log:", err);
+        if (!cancelled) setError("Unable to load routine log.");
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -125,19 +137,34 @@ export function RoutineLogPanel({
     return () => {
       cancelled = true;
     };
-  }, [
-    userId,
-    routine.id,
-    selectedDate,
-  ]);
-  
+  }, [userId, routine.id, selectedDate]);
 
-  function handleDateChange(
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) {
+  function handleDateChange(event: React.ChangeEvent<HTMLInputElement>) {
     setSelectedDate(event.target.value);
     setError("");
     setMessage("");
+  }
+
+  function handleImagePick(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPendingImage(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setRemoveImage(false);
+    // Reset the input so picking the same file again fires onChange.
+    event.target.value = "";
+  }
+
+  function handleClearPending() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPendingImage(null);
+    setPreviewUrl(null);
+  }
+
+  function handleRemoveSaved() {
+    setRemoveImage(true);
+    setSavedImageUrl(null);
   }
 
   async function handleDelete() {
@@ -146,12 +173,23 @@ export function RoutineLogPanel({
     setMessage("");
     try {
       setDeleting(true);
+      // Delete the stored image first (best-effort).
+      if (savedImageUrl) await deleteRoutineLogImage(savedImageUrl);
       await deleteRoutineLog(userId, existingLogId);
       setExistingLogId(null);
       setStatus("pending");
       setRemark("");
       setValue("");
-      window.dispatchEvent(new CustomEvent("routine-log-saved", { detail: { routineId: routine.id, value: null } }));
+      setSavedImageUrl(null);
+      setPendingImage(null);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+      setRemoveImage(false);
+      window.dispatchEvent(
+        new CustomEvent("routine-log-saved", {
+          detail: { routineId: routine.id, value: null },
+        }),
+      );
       setMessage("Log deleted successfully.");
       onSaved?.();
     } catch (err) {
@@ -173,9 +211,7 @@ export function RoutineLogPanel({
         setError("Please enter a value.");
         return;
       }
-
       numericValue = Number(value);
-
       if (!Number.isFinite(numericValue)) {
         setError("Please enter a valid number.");
         return;
@@ -185,32 +221,51 @@ export function RoutineLogPanel({
     try {
       setSaving(true);
 
+      // Resolve final imageUrl:
+      // 1. If a new file was picked, upload it (and delete the old one).
+      // 2. If the user removed the saved image, delete it from Storage.
+      // 3. Otherwise keep whatever was already saved.
+      let finalImageUrl: string | null = savedImageUrl;
+
+      if (pendingImage) {
+        if (savedImageUrl) await deleteRoutineLogImage(savedImageUrl);
+        finalImageUrl = await uploadRoutineLogImage(
+          userId,
+          routine.id,
+          toDayTimestamp(selectedDateObject),
+          pendingImage,
+        );
+        // Clear pending state now that it's uploaded.
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPendingImage(null);
+        setPreviewUrl(null);
+        setSavedImageUrl(finalImageUrl);
+      } else if (removeImage && savedImageUrl) {
+        await deleteRoutineLogImage(savedImageUrl);
+        finalImageUrl = null;
+      }
+
       await saveRoutineLog(userId, {
         routineId: routine.id,
         date: toDayTimestamp(selectedDateObject),
         status,
         remark,
         value: numericValue,
+        imageUrl: finalImageUrl,
       });
+
+      setRemoveImage(false);
 
       window.dispatchEvent(
         new CustomEvent("routine-log-saved", {
-          detail: {
-            routineId: routine.id,
-            value: numericValue,
-          },
+          detail: { routineId: routine.id, value: numericValue },
         }),
       );
 
       setMessage("Routine log saved successfully.");
-
       onSaved?.();
     } catch (err) {
-      console.error(
-        "Failed to save routine log:",
-        err,
-      );
-
+      console.error("Failed to save routine log:", err);
       setError("Unable to save routine log.");
     } finally {
       setSaving(false);
@@ -220,13 +275,14 @@ export function RoutineLogPanel({
   if (loading) {
     return (
       <div className="flex items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6">
-        <Loader2
-          size={24}
-          className="animate-spin text-[var(--text-muted)]"
-        />
+        <Loader2 size={24} className="animate-spin text-[var(--text-muted)]" />
       </div>
     );
   }
+
+  // The image to preview: prefer the local pending file, else the saved URL.
+  const displayImageUrl = previewUrl ?? (removeImage ? null : savedImageUrl);
+  const hasPendingChanges = pendingImage !== null || removeImage;
 
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
@@ -274,14 +330,10 @@ export function RoutineLogPanel({
           <input
             type="date"
             value={selectedDate}
-            min={formatDateForInput(
-              routine.startDate.toDate(),
-            )}
+            min={formatDateForInput(routine.startDate.toDate())}
             max={
               routine.endDate
-                ? formatDateForInput(
-                    routine.endDate.toDate(),
-                  )
+                ? formatDateForInput(routine.endDate.toDate())
                 : undefined
             }
             onChange={handleDateChange}
@@ -290,8 +342,7 @@ export function RoutineLogPanel({
         </div>
 
         <p className="mt-1 text-xs text-[var(--text-faint)]">
-          Select the date for which you want to record
-          this routine.
+          Select the date for which you want to record this routine.
         </p>
       </div>
 
@@ -311,10 +362,7 @@ export function RoutineLogPanel({
                 : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
             }`}
           >
-            <Check
-              size={17}
-              className="mr-2 inline-block"
-            />
+            <Check size={17} className="mr-2 inline-block" />
             Yes
           </button>
 
@@ -327,10 +375,7 @@ export function RoutineLogPanel({
                 : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
             }`}
           >
-            <X
-              size={17}
-              className="mr-2 inline-block"
-            />
+            <X size={17} className="mr-2 inline-block" />
             No
           </button>
 
@@ -352,20 +397,15 @@ export function RoutineLogPanel({
       {routine.inputType === "number" && (
         <div className="mt-5">
           <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
-            Value
-            {routine.unit && ` (${routine.unit})`}
+            Value{routine.unit && ` (${routine.unit})`}
           </label>
 
           <input
             type="number"
             value={value}
-            onChange={(event) =>
-              setValue(event.target.value)
-            }
+            onChange={(event) => setValue(event.target.value)}
             placeholder={
-              routine.unit
-                ? `Enter value in ${routine.unit}`
-                : "Enter value"
+              routine.unit ? `Enter value in ${routine.unit}` : "Enter value"
             }
             className="w-full rounded-xl border border-[var(--border)] px-4 py-3 text-sm outline-none focus:border-[var(--border-strong)]"
           />
@@ -380,13 +420,83 @@ export function RoutineLogPanel({
 
         <textarea
           value={remark}
-          onChange={(event) =>
-            setRemark(event.target.value)
-          }
+          onChange={(event) => setRemark(event.target.value)}
           placeholder="Add any remarks..."
           rows={3}
           className="w-full resize-none rounded-xl border border-[var(--border)] px-4 py-3 text-sm outline-none focus:border-[var(--border-strong)]"
         />
+      </div>
+
+      {/* Image Attachment */}
+      <div className="mt-5">
+        <label className="mb-2 block text-sm font-medium text-[var(--text-secondary)]">
+          Image
+        </label>
+
+        {displayImageUrl ? (
+          <div className="relative w-full overflow-hidden rounded-xl border border-[var(--border)]">
+            <img
+              src={displayImageUrl}
+              alt="Routine log attachment"
+              className="max-h-64 w-full cursor-zoom-in object-contain"
+              onClick={() => setLightboxSrc(displayImageUrl)}
+            />
+
+            {/* Badge when a new file is pending */}
+            {pendingImage && (
+              <span className="absolute left-2 top-2 rounded-full bg-[var(--warning)] px-2 py-0.5 text-xs font-semibold text-white">
+                Not saved yet
+              </span>
+            )}
+
+            <div className="absolute right-2 top-2 flex gap-2">
+              {/* Replace */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-lg bg-[var(--bg-elevated)] p-1.5 shadow hover:bg-[var(--bg-subtle)] transition-colors"
+                title="Replace image"
+              >
+                <ImagePlus size={16} className="text-[var(--text-secondary)]" />
+              </button>
+
+              {/* Remove */}
+              <button
+                type="button"
+                onClick={pendingImage ? handleClearPending : handleRemoveSaved}
+                className="rounded-lg bg-[var(--danger-soft)] p-1.5 shadow hover:bg-[var(--danger)] hover:text-white transition-colors"
+                title="Remove image"
+              >
+                <Trash2 size={16} className="text-[var(--danger)]" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border)] px-4 py-6 text-sm text-[var(--text-muted)] hover:border-[var(--border-strong)] hover:text-[var(--text-secondary)] transition-colors"
+          >
+            <ImagePlus size={20} />
+            Attach an image
+          </button>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleImagePick}
+        />
+
+        {hasPendingChanges && (
+          <p className="mt-1 text-xs text-[var(--warning)]">
+            {pendingImage
+              ? "New image will be uploaded when you save."
+              : "Image will be removed when you save."}
+          </p>
+        )}
       </div>
 
       {/* Actions */}
@@ -421,6 +531,14 @@ export function RoutineLogPanel({
           </button>
         )}
       </div>
+
+      {lightboxSrc && (
+        <ImageLightbox
+          src={lightboxSrc}
+          alt="Routine log attachment"
+          onClose={() => setLightboxSrc(null)}
+        />
+      )}
     </div>
   );
 }

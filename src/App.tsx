@@ -5,10 +5,12 @@ import {
   Check,
   Flame,
   Home,
+  ImagePlus,
   Loader2,
   LogOut,
   Moon,
   Sun,
+  Trash2,
   User,
   X,
 } from "lucide-react";
@@ -22,11 +24,17 @@ import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { CalendarView } from "./components/calendar/CalendarView";
 import { ProfileView } from "./components/profile/ProfileView";
 import { RoutineManager } from "./components/routines/RoutineManager";
+import { ImageLightbox } from "./components/ui/ImageLightbox";
 import { RoutineAnalytics } from "./components/analytics/RoutineAnalytics";
 
 import type { Routine, RoutineLog, RoutineStatus } from "./types/routine";
 import { getRoutines } from "./services/routineService";
-import { getRoutineLog, saveRoutineLog } from "./services/routineLogService";
+import {
+  deleteRoutineLogImage,
+  getRoutineLog,
+  saveRoutineLog,
+  uploadRoutineLogImage,
+} from "./services/routineLogService";
 import { getRoutinesForDate } from "./utils/recurrence";
 import { getStreakData } from "./services/streakService";
 import { getProfile } from "./services/profileService";
@@ -448,13 +456,52 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
 
+  // Image state
+  const [savedImageUrl, setSavedImageUrl] = useState<string | null>(log?.imageUrl ?? null);
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [removingImage, setRemovingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+
   const todayTs = toDayTimestamp(date);
+
+  // Revoke object URL on unmount or when preview changes
+  useEffect(() => {
+    return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
+  }, [previewUrl]);
 
   useEffect(() => {
     setStatus(log?.status ?? "pending");
     setValue(log?.value != null ? String(log.value) : "");
     setRemark(log?.remark ?? "");
+    setSavedImageUrl(log?.imageUrl ?? null);
+    setPendingImage(null);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setRemovingImage(false);
   }, [log]);
+
+  function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPendingImage(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setRemovingImage(false);
+    e.target.value = "";
+  }
+
+  function handleClearPending() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPendingImage(null);
+    setPreviewUrl(null);
+  }
+
+  function handleRemoveSaved() {
+    setRemovingImage(true);
+    setSavedImageUrl(null);
+  }
 
   async function handleStatusClick(next: RoutineStatus) {
     setStatus(next);
@@ -473,12 +520,34 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
     }
     try {
       setSaving(true);
+
+      // Resolve final imageUrl
+      let finalImageUrl: string | null = savedImageUrl;
+      if (pendingImage) {
+        if (savedImageUrl) await deleteRoutineLogImage(savedImageUrl);
+        finalImageUrl = await uploadRoutineLogImage(
+          userId,
+          routine.id,
+          todayTs,
+          pendingImage,
+        );
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPendingImage(null);
+        setPreviewUrl(null);
+        setSavedImageUrl(finalImageUrl);
+      } else if (removingImage && savedImageUrl) {
+        await deleteRoutineLogImage(savedImageUrl);
+        finalImageUrl = null;
+        setRemovingImage(false);
+      }
+
       await saveRoutineLog(userId, {
         routineId: routine.id,
         date: todayTs,
         status: s,
         remark: r,
         value: numVal,
+        imageUrl: finalImageUrl,
       });
       const pseudo: RoutineLog = {
         id: log?.id ?? "",
@@ -487,6 +556,7 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
         status: s,
         remark: r,
         value: numVal,
+        imageUrl: finalImageUrl,
         createdAt: log?.createdAt ?? todayTs,
         updatedAt: todayTs,
       };
@@ -506,6 +576,9 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
     no: "border-[var(--danger)]/40 bg-[var(--danger-soft)]",
     pending: "border-[var(--border)] bg-[var(--bg-elevated)]",
   };
+
+  // The image to display: local preview takes priority over saved URL
+  const displayImageUrl = previewUrl ?? (removingImage ? null : savedImageUrl);
 
   return (
     <article className={`rounded-2xl border p-4 transition-colors ${statusColors[status]}`}>
@@ -574,11 +647,90 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
         />
       </div>
 
+      {/* Image attachment */}
+      <div className="mt-2">
+        {displayImageUrl ? (
+          <div className="relative overflow-hidden rounded-xl border border-[var(--border)]">
+            <img
+              src={displayImageUrl}
+              alt="Routine log attachment"
+              className="max-h-48 w-full cursor-zoom-in object-contain"
+              onClick={() => setLightboxSrc(displayImageUrl)}
+            />
+            {pendingImage && (
+              <span className="absolute left-2 top-2 rounded-full bg-[var(--warning)] px-2 py-0.5 text-[10px] font-bold text-white">
+                Not saved yet
+              </span>
+            )}
+            <div className="absolute right-2 top-2 flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-lg bg-[var(--bg-elevated)] p-1.5 shadow hover:bg-[var(--bg-subtle)] transition-colors"
+                title="Replace image"
+              >
+                <ImagePlus size={14} className="text-[var(--text-secondary)]" />
+              </button>
+              <button
+                type="button"
+                onClick={pendingImage ? handleClearPending : handleRemoveSaved}
+                className="rounded-lg bg-[var(--danger-soft)] p-1.5 shadow hover:bg-[var(--danger)] hover:text-white transition-colors"
+                title="Remove image"
+              >
+                <Trash2 size={14} className="text-[var(--danger)]" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--border)] py-3 text-xs text-[var(--text-muted)] hover:border-[var(--border-strong)] hover:text-[var(--text-secondary)] transition-colors"
+          >
+            <ImagePlus size={14} />
+            Attach image
+          </button>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleImagePick}
+        />
+        {(pendingImage || removingImage) && (
+          <p className="mt-1 text-[10px] text-[var(--warning)]">
+            {pendingImage ? "Image will upload when saved." : "Image will be removed when saved."}
+          </p>
+        )}
+      </div>
+
+      {/* Save image button — shown when there's a pending image change and status is pending */}
+      {(pendingImage || removingImage) && status === "pending" && (
+        <button
+          type="button"
+          onClick={() => void save(status, value, remark)}
+          disabled={saving}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--accent-pink)] py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : null}
+          Save
+        </button>
+      )}
+
       {error && <p className="mt-2 text-xs text-[var(--danger)]">{error}</p>}
-      {saving && (
+      {saving && !pendingImage && !removingImage && (
         <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
           <Loader2 size={12} className="animate-spin" /> Saving…
         </div>
+      )}
+
+      {lightboxSrc && (
+        <ImageLightbox
+          src={lightboxSrc}
+          alt="Routine log attachment"
+          onClose={() => setLightboxSrc(null)}
+        />
       )}
     </article>
   );
