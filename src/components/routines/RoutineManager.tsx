@@ -9,6 +9,7 @@ import {
   Plus,
   Trash2,
   X,
+  Sparkles,
 } from "lucide-react";
 import { Timestamp } from "firebase/firestore";
 
@@ -25,6 +26,7 @@ import {
   updateRoutine,
   type RoutineInput,
 } from "../../services/routineService";
+import { getProfile, type FitnessProfile } from "../../services/profileService";
 
 interface RoutineManagerProps {
   userId: string;
@@ -91,6 +93,14 @@ export function RoutineManager({ userId }: RoutineManagerProps) {
 
   const [error, setError] = useState("");
 
+  const [profile, setProfile] = useState<FitnessProfile | null>(null);
+  const [dismissedRecs, setDismissedRecs] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(`dismissed-recs-${userId}`);
+      return saved ? new Set(JSON.parse(saved) as string[]) : new Set();
+    } catch { return new Set(); }
+  });
+
   async function loadRoutines() {
     try {
       setLoading(true);
@@ -108,6 +118,87 @@ export function RoutineManager({ userId }: RoutineManagerProps) {
   useEffect(() => {
     void loadRoutines();
   }, [userId]);
+
+  useEffect(() => {
+    getProfile(userId).then(setProfile).catch(() => {});
+  }, [userId]);
+
+  function dismissRec(key: string) {
+    setDismissedRecs((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      try { localStorage.setItem(`dismissed-recs-${userId}`, JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }
+
+  /**
+   * Build a list of profile-aware routine recommendations.
+   * Each rec is only shown if:
+   *  1. The profile has the relevant field filled in (so we can pre-fill the form)
+   *  2. No existing routine already covers that intent (fuzzy title match)
+   *  3. The user hasn't dismissed it this session
+   */
+  const recommendations = (() => {
+    if (!profile || loading) return [];
+    const titles = routines.map((r) => r.title.trim().toLowerCase());
+    const has = (keywords: string[]) => titles.some((t) => keywords.some((k) => t.includes(k)));
+
+    const recs: Array<{
+      key: string;
+      label: string;
+      description: string;
+      prefill: Partial<RoutineForm>;
+    }> = [];
+
+    if (profile.weightKg && !has(["weight"])) {
+      recs.push({
+        key: "weight",
+        label: "Track your weight",
+        description: `Log daily weight (current: ${profile.weightKg} kg, target: ${profile.targetWeightKg ?? "—"} kg)`,
+        prefill: { title: "Weight", inputType: "number", unit: "kg", frequency: "daily" },
+      });
+    }
+    if (profile.dailyWaterLiters && !has(["water", "hydration"])) {
+      recs.push({
+        key: "water",
+        label: "Track water intake",
+        description: `Goal: ${profile.dailyWaterLiters} L / day`,
+        prefill: { title: "Water Intake", inputType: "number", unit: "L", frequency: "daily" },
+      });
+    }
+    if (profile.dailyStepsGoal && !has(["step", "walk"])) {
+      recs.push({
+        key: "steps",
+        label: "Track daily steps",
+        description: `Goal: ${profile.dailyStepsGoal.toLocaleString()} steps / day`,
+        prefill: { title: "Daily Steps", inputType: "number", unit: "steps", frequency: "daily" },
+      });
+    }
+    if (profile.sleepHoursGoal && !has(["sleep"])) {
+      recs.push({
+        key: "sleep",
+        label: "Track sleep",
+        description: `Goal: ${profile.sleepHoursGoal}h / night`,
+        prefill: { title: "Sleep", inputType: "number", unit: "hrs", frequency: "daily" },
+      });
+    }
+    if (profile.weeklyWorkoutDays && !has(["workout", "exercise", "gym", "training"])) {
+      recs.push({
+        key: "workout",
+        label: "Log workouts",
+        description: `Goal: ${profile.weeklyWorkoutDays} days / week`,
+        prefill: {
+          title: "Workout",
+          inputType: "none",
+          frequency: "weekly",
+          weekdays: [1, 3, 5].slice(0, profile.weeklyWorkoutDays),
+        },
+      });
+    }
+
+    return recs.filter((r) => !dismissedRecs.has(r.key));
+  })();
 
   function openCreateForm() {
     setEditingId(null);
@@ -349,16 +440,7 @@ export function RoutineManager({ userId }: RoutineManagerProps) {
 
   return (
     <section className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)]">
-            My Routines
-          </h2>
-          <p className="mt-1 text-sm text-[var(--text-muted)]">
-            Create and manage your wellness routines.
-          </p>
-        </div>
-
+      <div className="flex justify-end">
         <button
           type="button"
           onClick={openCreateForm}
@@ -368,6 +450,50 @@ export function RoutineManager({ userId }: RoutineManagerProps) {
           Add Routine
         </button>
       </div>
+
+      {/* Profile-based recommendations */}
+      {recommendations.length > 0 && (
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm space-y-3">
+          <div className="flex items-center gap-2 mb-1">
+            <Sparkles size={16} className="text-[var(--accent-yellow)]" />
+            <p className="text-sm font-bold text-[var(--text-primary)]">Suggested for you</p>
+            <span className="ml-1 text-xs text-[var(--text-muted)]">based on your profile</span>
+          </div>
+          {recommendations.map((rec) => (
+            <div
+              key={rec.key}
+              className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">{rec.label}</p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5">{rec.description}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingId(null);
+                  setForm({ ...emptyForm, ...rec.prefill });
+                  setError("");
+                  setShowForm(true);
+                  dismissRec(rec.key);
+                }}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-pink)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+              >
+                <Plus size={13} />
+                Add
+              </button>
+              <button
+                type="button"
+                onClick={() => dismissRec(rec.key)}
+                className="shrink-0 rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-elevated)]"
+                title="Dismiss"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-xl border border-[var(--danger-soft)] bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">

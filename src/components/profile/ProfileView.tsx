@@ -30,6 +30,7 @@ import {
 } from "../../services/profileService";
 import { useTheme } from "../../context/ThemeContext";
 import { saveUserTheme } from "../../services/themeService";
+import { getWeightRoutine, getWeightEntries } from "../../services/weightService";
 
 interface ProfileViewProps {
   userId: string;
@@ -76,6 +77,7 @@ const HEALTH_CONDITIONS_LIST = [
 export function ProfileView({ userId, userName, onNameChange, onSignOut }: ProfileViewProps) {
   const { theme, setTheme } = useTheme();
   const [profile, setProfile] = useState<FitnessProfile | null>(null);
+  const [liveWeightKg, setLiveWeightKg] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<FitnessProfile>(EMPTY_PROFILE);
   const [step, setStep] = useState<Step>("personal");
@@ -110,6 +112,25 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
     void load();
     return () => { cancelled = true; };
   }, [userId, userName]);
+
+  // Fetch the latest logged weight from routines (live source of truth for BMI/TDEE)
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchLiveWeight() {
+      try {
+        const routine = await getWeightRoutine(userId);
+        if (!routine || cancelled) return;
+        const entries = await getWeightEntries(userId, routine.id);
+        if (!cancelled && entries.length > 0) {
+          setLiveWeightKg(entries[entries.length - 1].value);
+        }
+      } catch {
+        // non-critical — silently fall back to profile.weightKg
+      }
+    }
+    void fetchLiveWeight();
+    return () => { cancelled = true; };
+  }, [userId]);
 
   async function handleSave() {
     setSaving(true);
@@ -318,12 +339,13 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
     );
   }
 
-  const bmi = profile.weightKg && profile.heightCm
-    ? calculateBMI(profile.weightKg, profile.heightCm) : null;
+  const effectiveWeightKg = liveWeightKg ?? profile.weightKg;
+  const bmi = effectiveWeightKg && profile.heightCm
+    ? calculateBMI(effectiveWeightKg, profile.heightCm) : null;
   const bmiCat = bmi ? getBMICategory(bmi) : null;
   const age = profile.dateOfBirth ? calculateAge(profile.dateOfBirth) : null;
-  const bmr = profile.weightKg && profile.heightCm && age && profile.gender
-    ? calculateBMR(profile.weightKg, profile.heightCm, age, profile.gender) : null;
+  const bmr = effectiveWeightKg && profile.heightCm && age && profile.gender
+    ? calculateBMR(effectiveWeightKg, profile.heightCm, age, profile.gender) : null;
   const tdee = bmr && profile.activityLevel ? calculateTDEE(bmr, profile.activityLevel) : null;
 
   return (
@@ -375,11 +397,16 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
           <div className="flex items-center gap-2 mb-4">
             <Scale size={18} className="text-[var(--accent-pink)]" />
             <h3 className="font-bold text-[var(--text-primary)]">Body Metrics</h3>
+            {liveWeightKg && liveWeightKg !== profile.weightKg && (
+              <span className="ml-auto text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[var(--accent-blue-soft)] text-[var(--accent-blue)]">
+                live weight
+              </span>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <BMIBlock label="BMI" value={bmi.toFixed(1)} sub={bmiCat.label} subColor={bmiCat.color} />
             <BMIBlock label="Height" value={`${profile.heightCm}`} sub="cm" />
-            <BMIBlock label="Weight" value={`${profile.weightKg}`} sub="kg" />
+            <BMIBlock label="Weight" value={`${effectiveWeightKg}`} sub="kg" />
             <BMIBlock label="Target" value={profile.targetWeightKg ? `${profile.targetWeightKg}` : "—"} sub="kg" />
           </div>
           {/* BMI bar */}

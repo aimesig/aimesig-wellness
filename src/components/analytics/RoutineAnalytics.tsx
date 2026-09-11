@@ -28,12 +28,37 @@ import type { Routine, RoutineLog } from "../../types/routine";
 type GoalPeriod = "weekly" | "monthly" | "yearly";
 type HeatmapRange = "7d" | "30d" | "3m" | "1y" | "lifetime";
 
+// Stats the user can opt into when creating a card
+type StatKey =
+  | "current"       // latest value (numeric) or completion % (yes/no)
+  | "average"       // mean value over the period (numeric) or avg completion % (yes/no)
+  | "total"         // sum of values (numeric) or total yes-days (yes/no)
+  | "submissions"   // total number of logs in the period
+  | "best_streak"   // longest consecutive yes streak
+  | "min"           // minimum value (numeric only)
+  | "max"           // maximum value (numeric only)
+  | "goal_progress"; // period goal progress % (always shown, but toggleable)
+
+const STAT_OPTIONS: { key: StatKey; label: string; numericOnly?: boolean; yesnoOnly?: boolean }[] = [
+  { key: "goal_progress", label: "Goal progress" },
+  { key: "current",       label: "Current" },
+  { key: "average",       label: "Average" },
+  { key: "total",         label: "Total" },
+  { key: "submissions",   label: "Submissions" },
+  { key: "best_streak",   label: "Best streak",   yesnoOnly: true },
+  { key: "min",           label: "Min",            numericOnly: true },
+  { key: "max",           label: "Max",            numericOnly: true },
+];
+
+const DEFAULT_STATS: StatKey[] = ["goal_progress", "current", "average", "submissions"];
+
 interface AnalyticsCard {
-  id: string; // card id stored in firestore
+  id: string;
   routineId: string;
   goalPeriod: GoalPeriod;
   goalTarget: number;
   heatmapRange: HeatmapRange;
+  enabledStats: StatKey[]; // which stat chips to show
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -81,7 +106,15 @@ async function fetchAllLogs(userId: string, routineId: string): Promise<RoutineL
 async function loadAnalyticsCards(userId: string): Promise<AnalyticsCard[]> {
   const ref = collection(db, "users", userId, "analyticsCards");
   const snap = await getDocs(ref);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as AnalyticsCard));
+  return snap.docs.map((d) => {
+    const data = d.data() as Omit<AnalyticsCard, "id">;
+    return {
+      id: d.id,
+      ...data,
+      // Back-compat: old cards without enabledStats get the defaults
+      enabledStats: data.enabledStats ?? DEFAULT_STATS,
+    };
+  });
 }
 
 async function saveAnalyticsCard(userId: string, card: Omit<AnalyticsCard, "id">): Promise<string> {
@@ -107,6 +140,7 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
   const [goalPeriod, setGoalPeriod] = useState<GoalPeriod>("weekly");
   const [goalTarget, setGoalTarget] = useState("");
   const [heatmapRange, setHeatmapRange] = useState<HeatmapRange>("30d");
+  const [enabledStats, setEnabledStats] = useState<StatKey[]>(DEFAULT_STATS);
   const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
@@ -132,11 +166,13 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
         goalPeriod,
         goalTarget: Number(goalTarget),
         heatmapRange,
+        enabledStats,
       };
       const id = await saveAnalyticsCard(userId, newCard);
       setCards((prev) => [...prev, { id, ...newCard }]);
       setShowAdd(false);
       setGoalTarget("");
+      setEnabledStats(DEFAULT_STATS);
     } finally {
       setAdding(false);
     }
@@ -252,6 +288,39 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
                     {r === "7d" ? "7 days" : r === "30d" ? "30 days" : r === "3m" ? "3 months" : r === "1y" ? "1 year" : "Lifetime"}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Show stats</label>
+              <p className="mb-2 text-[10px] text-[var(--text-faint)]">Pick which metrics appear on the card</p>
+              <div className="flex flex-wrap gap-2">
+                {STAT_OPTIONS.filter((s) => {
+                  const isNum = (routines.find((r) => r.id === selectedRoutineId)?.inputType ?? "none") === "number";
+                  if (s.numericOnly && !isNum) return false;
+                  if (s.yesnoOnly && isNum) return false;
+                  return true;
+                }).map((s) => {
+                  const active = enabledStats.includes(s.key);
+                  return (
+                    <button
+                      key={s.key}
+                      type="button"
+                      onClick={() =>
+                        setEnabledStats((prev) =>
+                          active ? prev.filter((k) => k !== s.key) : [...prev, s.key],
+                        )
+                      }
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                        active
+                          ? "bg-[var(--accent-pink)] text-white"
+                          : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--accent-pink-soft)]"
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -423,44 +492,42 @@ function GoalSummary({
   allRoutines: Routine[];
 }) {
   const today = toDayStart(new Date());
+  const isNumber = routine.inputType === "number";
 
-  // Compute period window
   const getPeriodStart = (period: GoalPeriod) => {
     const d = new Date(today);
     if (period === "weekly") { d.setDate(d.getDate() - d.getDay()); return d; }
-    if (period === "monthly") { return new Date(d.getFullYear(), d.getMonth(), 1); }
+    if (period === "monthly") return new Date(d.getFullYear(), d.getMonth(), 1);
     return new Date(d.getFullYear(), 0, 1);
   };
 
   const periodStart = getPeriodStart(card.goalPeriod);
-  const isNumber = routine.inputType === "number";
-
-  // For yes/no: count scheduled days where status=yes (pending past = no)
   const logMap = new Map(logs.map((l) => [toDateKey(l.date.toDate()), l]));
 
+  // ── Collect period data ─────────────────────────────────────────────────
   let periodActual = 0;
+  let submissionCount = 0;
+  const numericValues: number[] = [];
 
   if (isNumber) {
-    // Sum all numeric values in period
     for (const log of logs) {
       const d = toDayStart(log.date.toDate());
-      if (d >= periodStart && d <= today && log.status === "yes" && log.value != null) {
-        periodActual += log.value;
+      if (d >= periodStart && d <= today) {
+        submissionCount++;
+        if (log.status === "yes" && log.value != null) {
+          periodActual += log.value;
+          numericValues.push(log.value);
+        }
       }
     }
   } else {
-    // Count yes days in period
     const cur = new Date(periodStart);
     while (cur <= today) {
       const key = toDateKey(cur);
       const log = logMap.get(key);
-      // A log always counts for its day, even if the routine's recurrence
-      // rule doesn't schedule it that day (e.g. backfilled/logged manually
-      // via "Log Today" with a different date picked).
-      const scheduled = allRoutines.every((r) => r.id !== routine.id) ||
-        getRoutinesForDate([routine], cur).length > 0 ||
-        !!log;
+      const scheduled = getRoutinesForDate([routine], cur).length > 0 || !!log;
       if (scheduled) {
+        if (log) submissionCount++;
         if (log?.status === "yes") periodActual++;
       }
       cur.setDate(cur.getDate() + 1);
@@ -469,35 +536,128 @@ function GoalSummary({
 
   const pct = card.goalTarget > 0 ? Math.min(100, Math.round((periodActual / card.goalTarget) * 100)) : 0;
   const met = periodActual >= card.goalTarget;
-
-  // All-time streak of best periods
   const unit = isNumber ? (routine.unit || "units") : "days";
 
+  // ── Per-stat values ─────────────────────────────────────────────────────
+  const currentValue = isNumber
+    ? (numericValues.length > 0 ? numericValues[numericValues.length - 1] : null)
+    : pct;
+
+  const average = isNumber
+    ? (numericValues.length > 0 ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length : null)
+    : (submissionCount > 0 ? Math.round((periodActual / submissionCount) * 100) : null);
+
+  const minVal = isNumber && numericValues.length > 0 ? Math.min(...numericValues) : null;
+  const maxVal = isNumber && numericValues.length > 0 ? Math.max(...numericValues) : null;
+
+  // Best streak (all-time consecutive yes days)
+  const allYesDays = Array.from(
+    new Set(logs.filter((l) => l.status === "yes").map((l) => toDateKey(l.date.toDate())))
+  ).sort();
+  let bestStreak = 0;
+  let curStreak = 0;
+  let prevDate: Date | null = null;
+  for (const key of allYesDays) {
+    const d = new Date(key + "T00:00:00");
+    if (prevDate) {
+      const diff = (d.getTime() - prevDate.getTime()) / 86400000;
+      curStreak = diff === 1 ? curStreak + 1 : 1;
+    } else {
+      curStreak = 1;
+    }
+    bestStreak = Math.max(bestStreak, curStreak);
+    prevDate = d;
+  }
+
+  // ── Render stat chips based on user selection ───────────────────────────
+  const enabled = card.enabledStats ?? DEFAULT_STATS;
+
+  interface Chip { label: string; value: string; sub?: string; accent?: boolean }
+  const chips: Chip[] = [];
+
+  if (enabled.includes("current")) {
+    chips.push({
+      label: isNumber ? "Current" : "This period",
+      value: isNumber
+        ? (currentValue != null ? `${(currentValue as number).toFixed(1)} ${unit}` : "—")
+        : `${periodActual} ${unit}`,
+      accent: true,
+    });
+  }
+  if (enabled.includes("average")) {
+    chips.push({
+      label: "Average",
+      value: average != null
+        ? isNumber ? `${(average as number).toFixed(1)} ${unit}` : `${average}%`
+        : "—",
+    });
+  }
+  if (enabled.includes("total") && isNumber) {
+    chips.push({
+      label: "Total",
+      value: periodActual > 0 ? `${periodActual.toFixed(1)} ${unit}` : "—",
+    });
+  }
+  if (enabled.includes("submissions")) {
+    chips.push({
+      label: "Submissions",
+      value: String(submissionCount),
+      sub: `this ${card.goalPeriod.replace("ly", "")}`,
+    });
+  }
+  if (enabled.includes("best_streak") && !isNumber) {
+    chips.push({ label: "Best streak", value: bestStreak > 0 ? `${bestStreak}d` : "—" });
+  }
+  if (enabled.includes("min") && isNumber) {
+    chips.push({ label: "Min", value: minVal != null ? `${(minVal as number).toFixed(1)} ${unit}` : "—" });
+  }
+  if (enabled.includes("max") && isNumber) {
+    chips.push({ label: "Max", value: maxVal != null ? `${(maxVal as number).toFixed(1)} ${unit}` : "—" });
+  }
+
   return (
-    <div className="rounded-xl bg-[var(--bg-elevated)] p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <p className="text-xs text-[var(--text-muted)] capitalize">{card.goalPeriod} goal progress</p>
-          <p className="text-2xl font-bold text-[var(--text-primary)]">
-            {isNumber ? periodActual.toFixed(1) : periodActual}
-            <span className="ml-1 text-sm font-medium text-[var(--text-muted)]">/ {card.goalTarget} {unit}</span>
-          </p>
+    <div className="space-y-3">
+      {enabled.includes("goal_progress") && (
+        <div className="rounded-xl bg-[var(--bg-elevated)] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-xs text-[var(--text-muted)] capitalize">{card.goalPeriod} goal progress</p>
+              <p className="text-2xl font-bold text-[var(--text-primary)]">
+                {isNumber ? periodActual.toFixed(1) : periodActual}
+                <span className="ml-1 text-sm font-medium text-[var(--text-muted)]">/ {card.goalTarget} {unit}</span>
+              </p>
+            </div>
+            <div className={`rounded-xl px-3 py-1.5 text-xs font-bold ${
+              met ? "bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]" : "bg-[var(--warning-soft)] text-[var(--warning)]"
+            }`}>
+              {pct}% {met ? "✓" : ""}
+            </div>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-[var(--border)]">
+            <div
+              className="h-1.5 rounded-full transition-all duration-500"
+              style={{ width: `${pct}%`, backgroundColor: met ? "var(--success)" : "var(--warning)" }}
+            />
+          </div>
         </div>
-        <div className={`rounded-xl px-3 py-1.5 text-xs font-bold ${
-          met ? "bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]" : "bg-[var(--warning-soft)] text-[var(--warning)]"
-        }`}>
-          {pct}% {met ? "✓" : ""}
+      )}
+
+      {chips.length > 0 && (
+        <div className={`grid gap-2 ${chips.length <= 2 ? "grid-cols-2" : chips.length === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4"}`}>
+          {chips.map((chip) => (
+            <div
+              key={chip.label}
+              className={`rounded-xl p-3 ${chip.accent ? "bg-[var(--accent-pink-soft)]" : "bg-[var(--bg-elevated)]"}`}
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{chip.label}</p>
+              <p className={`mt-1 text-lg font-bold ${chip.accent ? "text-[var(--accent-pink)]" : "text-[var(--text-primary)]"}`}>
+                {chip.value}
+              </p>
+              {chip.sub && <p className="text-[10px] text-[var(--text-faint)]">{chip.sub}</p>}
+            </div>
+          ))}
         </div>
-      </div>
-      <div className="h-1.5 w-full rounded-full bg-[var(--border)]">
-        <div
-          className="h-1.5 rounded-full transition-all duration-500"
-          style={{
-            width: `${pct}%`,
-            backgroundColor: met ? "var(--success)" : "var(--warning)",
-          }}
-        />
-      </div>
+      )}
     </div>
   );
 }
