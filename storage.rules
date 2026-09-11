@@ -1,13 +1,19 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /routineLogs/{userId}/{allPaths=**} {
-      allow read, write: if request.auth != null
-        && request.auth.uid == userId;
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
     }
+
+    match /routineLogs/{userId}/{allPaths=**} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Medical documents: lab reports, prescriptions, bills and issue attachments.
     match /medicalReports/{userId}/{allPaths=**} {
-      allow read, write: if request.auth != null
-        && request.auth.uid == userId;
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && request.resource.size < 25 * 1024 * 1024;
     }
   }
 }

@@ -19,12 +19,10 @@ import {
   LogOut,
   FileText,
   Upload,
-  Trash2,
   Plus,
   X,
   Image as ImageIcon,
   FileCheck,
-  Calendar,
   ClipboardList,
 } from "lucide-react";
 import {
@@ -41,14 +39,21 @@ import { useTheme } from "../../context/ThemeContext";
 import { saveUserTheme } from "../../services/themeService";
 import { getWeightRoutine, getWeightEntries } from "../../services/weightService";
 import {
-  getMedicalReports,
-  saveMedicalReport,
-  updateMedicalReport,
-  deleteMedicalReport,
+  subscribeHealthCheckups,
+  subscribeHealthIssues,
+  saveHealthCheckup,
+  updateHealthCheckup,
+  deleteHealthCheckup,
+  saveHealthIssue,
+  updateHealthIssue,
+  deleteHealthIssue,
   uploadMedicalFile,
-  type MedicalReport,
-  type ReportCategory,
+  type HealthCheckup,
+  type HealthIssue,
+  type CheckupCategory,
   type MedicalAttachment,
+  type ReferencedCheckupAttachment,
+  setHealthCheckupIssues,
 } from "../../services/medicalReportService";
 
 interface ProfileViewProps {
@@ -95,675 +100,255 @@ const HEALTH_CONDITIONS_LIST = [
 
 type ProfileTab = "profile" | "medical";
 
-const CATEGORY_META: Record<ReportCategory, { label: string; emoji: string; color: string }> = {
-  checkup:      { label: "Health Checkup", emoji: "🩺", color: "var(--accent-blue)" },
-  issue:        { label: "Health Issue",   emoji: "🤒", color: "var(--danger)" },
-  lab:          { label: "Lab Report",     emoji: "🧪", color: "var(--accent-yellow)" },
-  prescription: { label: "Prescription",   emoji: "💊", color: "var(--success)" },
-  other:        { label: "Other",          emoji: "📋", color: "var(--text-secondary)" },
-};
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function isImage(mime: string) {
   return mime.startsWith("image/");
 }
 
-// ── Medical Report Tab ─────────────────────────────────────
+// ── Intelligent Health Records ────────────────────────────
 
-interface MedicalReportTabProps {
-  userId: string;
-}
+interface MedicalReportTabProps { userId: string; }
+
+type MedicalSection = "checkups" | "issues";
+
+const CHECKUP_META: Record<CheckupCategory, { label: string; emoji: string }> = {
+  lab: { label: "Lab Report", emoji: "🧪" },
+  prescription: { label: "Prescription", emoji: "💊" },
+  bill: { label: "Bill", emoji: "🧾" },
+  other: { label: "Other", emoji: "📄" },
+};
 
 function MedicalReportTab({ userId }: MedicalReportTabProps) {
-  const [reports, setReports]           = useState<MedicalReport[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [deletingId, setDeletingId]     = useState<string | null>(null);
-  const [expandedId, setExpandedId]     = useState<string | null>(null);
-  const [lightboxUrl, setLightboxUrl]   = useState<string | null>(null);
-
-  // Form mode: null = closed, "new" = adding, "edit" = editing
-  const [formMode, setFormMode]               = useState<"new" | "edit" | null>(null);
-  const [editingReportId, setEditingReportId] = useState<string | null>(null);
-
-  // Form fields
-  const [title, setTitle]       = useState("");
-  const [category, setCategory] = useState<ReportCategory>("checkup");
-  const [date, setDate]         = useState(new Date().toISOString().split("T")[0]);
-  const [notes, setNotes]       = useState("");
-
-  // Attachment state
-  // attachments already saved to Storage (shown in edit mode)
+  const [section, setSection] = useState<MedicalSection>("checkups");
+  const [checkups, setCheckups] = useState<HealthCheckup[]>([]);
+  const [issues, setIssues] = useState<HealthIssue[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [form, setForm] = useState<"checkup" | "issue" | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState<CheckupCategory>("lab");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [notes, setNotes] = useState("");
+  const [healthIssueIds, setHealthIssueIds] = useState<string[]>([]);
+  const [linkedCheckupIds, setLinkedCheckupIds] = useState<string[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<MedicalAttachment[]>([]);
-  // attachments removed during this edit session (to be deleted from Storage on save)
-  const [removedAttachments, setRemovedAttachments]   = useState<MedicalAttachment[]>([]);
-  // newly picked files that haven't been uploaded yet
-  const [selectedFiles, setSelectedFiles]             = useState<File[]>([]);
-  const [uploadProgress, setUploadProgress]           = useState<Record<string, number>>({});
-
-  const [saving, setSaving]       = useState(false);
-  const [formError, setFormError] = useState("");
-
-  // Keep a single file input mounted at all times so the ref is always valid
+  const [removedAttachments, setRemovedAttachments] = useState<MedicalAttachment[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [referencedAttachments, setReferencedAttachments] = useState<ReferencedCheckupAttachment[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Data loading ────────────────────────────────────────
-
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      try {
-        const data = await getMedicalReports(userId);
-        if (!cancelled) setReports(data);
-      } catch {
-        // silently ignore
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    void load();
-    return () => { cancelled = true; };
+    let active = true;
+    const stopCheckups = subscribeHealthCheckups(userId, (data) => { if (active) { setCheckups(data); setLoading(false); } });
+    const stopIssues = subscribeHealthIssues(userId, (data) => { if (active) { setIssues(data); setLoading(false); } });
+    return () => { active = false; stopCheckups(); stopIssues(); };
   }, [userId]);
 
-  // ── Form helpers ────────────────────────────────────────
-
-  /**
-   * Reset all form fields to blank defaults.
-   * Does NOT touch formMode or editingReportId — callers manage those.
-   */
-  function clearFormFields() {
-    setTitle("");
-    setCategory("checkup");
-    setDate(new Date().toISOString().split("T")[0]);
-    setNotes("");
-    setExistingAttachments([]);
-    setRemovedAttachments([]);
-    setSelectedFiles([]);
-    setUploadProgress({});
-    setFormError("");
-    // Reset the hidden file input so the same file can be re-selected later
+  function clearForm() {
+    setTitle(""); setCategory("lab"); setDate(new Date().toISOString().split("T")[0]); setNotes("");
+    setHealthIssueIds([]); setLinkedCheckupIds([]); setExistingAttachments([]); setRemovedAttachments([]); setSelectedFiles([]);
+    setReferencedAttachments([]); setUploadProgress({}); setError(""); setEditingId(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  function openNewForm() {
-    clearFormFields();
-    setEditingReportId(null);
-    setFormMode("new");
+  function openNewCheckup(issueId: string | null = null) {
+    clearForm(); setHealthIssueIds(issueId ? [issueId] : []); setForm("checkup"); setSection("checkups");
   }
 
-  function openEditForm(report: MedicalReport) {
-    // Populate fields first, then set the mode so the form renders with data
-    setTitle(report.title);
-    setCategory(report.category);
-    setDate(report.date);
-    setNotes(report.notes);
-    setExistingAttachments(report.attachments ?? []);
-    setRemovedAttachments([]);
-    setSelectedFiles([]);
-    setUploadProgress({});
-    setFormError("");
-    if (fileInputRef.current) fileInputRef.current.value = "";
+  function openNewIssue() { clearForm(); setForm("issue"); setSection("issues"); }
 
-    setEditingReportId(report.id ?? null);
-    setExpandedId(null);
-    setFormMode("edit");
+  function openEditCheckup(item: HealthCheckup) {
+    setTitle(item.title); setCategory(item.category); setDate(item.date); setNotes(item.notes || "");
+    setHealthIssueIds(item.healthIssueIds?.length ? item.healthIssueIds : (item.healthIssueId ? [item.healthIssueId] : [])); setExistingAttachments(item.attachments || []); setRemovedAttachments([]);
+    setSelectedFiles([]); setReferencedAttachments([]); setEditingId(item.id || null); setError(""); setForm("checkup");
   }
 
-  function closeForm() {
-    clearFormFields();
-    setEditingReportId(null);
-    setFormMode(null);
+  function openEditIssue(item: HealthIssue) {
+    setTitle(item.title); setDate(item.date); setNotes(item.notes || ""); setExistingAttachments(item.attachments || []);
+    setHealthIssueIds([]);
+    setLinkedCheckupIds(checkups.filter((c) => (c.healthIssueIds || (c.healthIssueId ? [c.healthIssueId] : [])).includes(item.id || "")).map((c) => c.id!).filter(Boolean));
+    setReferencedAttachments(item.referencedAttachments || []); setRemovedAttachments([]); setSelectedFiles([]);
+    setEditingId(item.id || null); setError(""); setForm("issue");
   }
 
-  // ── File picking ────────────────────────────────────────
+  function closeForm() { clearForm(); setForm(null); }
 
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const picked = Array.from(files);
-    setSelectedFiles((prev) => [...prev, ...picked]);
-    // Reset so the same file can be re-selected if the user removes and re-adds it
+  function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (!files.length) return;
+    const tooLarge = files.find((f) => f.size > 25 * 1024 * 1024);
+    if (tooLarge) {
+      setError(`\"${tooLarge.name}\" is larger than 25 MB. Please choose a smaller file.`);
+      e.target.value = "";
+      return;
+    }
+    setError("");
+    setSelectedFiles((p) => [...p, ...files]);
     e.target.value = "";
   }
 
-  function removeSelectedFile(idx: number) {
-    setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
-    setUploadProgress((prev) => {
-      // Clean up any progress entry keyed by the removed file's name
-      const next = { ...prev };
-      // We don't have the file name here, but the progress map will be
-      // reset on next save anyway — nothing to do.
-      return next;
-    });
+  function removeExisting(att: MedicalAttachment) {
+    setExistingAttachments((p) => p.filter((x) => x.storagePath !== att.storagePath));
+    setRemovedAttachments((p) => [...p, att]);
   }
 
-  function removeExistingAttachment(att: MedicalAttachment) {
-    setExistingAttachments((prev) => prev.filter((a) => a.storagePath !== att.storagePath));
-    setRemovedAttachments((prev) => [...prev, att]);
+  function toggleReference(checkup: HealthCheckup, att: MedicalAttachment) {
+    if (!checkup.id) return;
+    const exists = referencedAttachments.some((x) => x.checkupId === checkup.id && x.storagePath === att.storagePath);
+    if (exists) setReferencedAttachments((p) => p.filter((x) => !(x.checkupId === checkup.id && x.storagePath === att.storagePath)));
+    else setReferencedAttachments((p) => [...p, { ...att, checkupId: checkup.id!, checkupTitle: checkup.title, checkupDate: checkup.date }]);
   }
 
-  // ── Save ────────────────────────────────────────────────
-
-  async function handleSave() {
-    if (!title.trim()) { setFormError("Please enter a title."); return; }
-    if (!date)         { setFormError("Please select a date."); return; }
-
-    // Snapshot mutable state before any awaits so React state changes
-    // during the async operation don't silently mutate what we're saving.
-    const filesToUpload      = [...selectedFiles];
-    const attachmentsToKeep  = [...existingAttachments];
-    const attachmentsToRemove = [...removedAttachments];
-    const reportIdToEdit     = editingReportId; // capture before any state reset
-    const currentMode        = formMode;
-
-    setSaving(true);
-    setFormError("");
-
+  async function save() {
+    if (!title.trim()) { setError("Please enter a title."); return; }
+    if (!date) { setError("Please select a date."); return; }
+    setSaving(true); setError("");
     try {
-      // Upload newly selected files sequentially
-      const newAttachments: MedicalAttachment[] = [];
-      for (const file of filesToUpload) {
-        const att = await uploadMedicalFile(userId, file, (pct) => {
-          setUploadProgress((prev) => ({ ...prev, [file.name]: pct }));
-        });
-        newAttachments.push(att);
+      const uploaded: MedicalAttachment[] = [];
+      for (const file of selectedFiles) {
+        uploaded.push(await uploadMedicalFile(userId, file, (pct) => setUploadProgress((p) => ({ ...p, [file.name]: pct }))));
       }
-
-      const finalAttachments = [...attachmentsToKeep, ...newAttachments];
-      const reportPayload: Omit<MedicalReport, "id" | "createdAt" | "updatedAt"> = {
-        title:       title.trim(),
-        category,
-        date,
-        notes,
-        attachments: finalAttachments,
-      };
-
-      if (currentMode === "edit" && reportIdToEdit) {
-        await updateMedicalReport(userId, reportIdToEdit, reportPayload, attachmentsToRemove);
-        // Optimistically update local state
-        setReports((prev) =>
-          prev.map((r) => (r.id === reportIdToEdit ? { ...r, ...reportPayload } : r))
-        );
-      } else {
-        const savedId = await saveMedicalReport(userId, reportPayload);
-        // Re-fetch to get the server timestamp; fall back to local insert on error
-        try {
-          const updated = await getMedicalReports(userId);
-          setReports(updated);
-        } catch {
-          setReports((prev) => [{ id: savedId, ...reportPayload }, ...prev]);
+      const attachments = [...existingAttachments, ...uploaded];
+      if (form === "checkup") {
+        const payload = { title: title.trim(), category, date, notes, attachments, healthIssueIds, healthIssueId: healthIssueIds[0] ?? null };
+        if (editingId) await updateHealthCheckup(userId, editingId, payload, removedAttachments);
+        else await saveHealthCheckup(userId, payload);
+      } else if (form === "issue") {
+        const payload = { title: title.trim(), date, notes, attachments, referencedAttachments };
+        let issueId = editingId;
+        if (editingId) await updateHealthIssue(userId, editingId, payload, removedAttachments);
+        else issueId = await saveHealthIssue(userId, payload);
+        if (issueId) {
+          const affected = checkups.filter((c) => {
+            const ids = c.healthIssueIds?.length ? c.healthIssueIds : (c.healthIssueId ? [c.healthIssueId] : []);
+            return ids.includes(issueId!) || linkedCheckupIds.includes(c.id || "");
+          });
+          await Promise.all(affected.filter((c) => c.id).map((c) => {
+            const oldIds = c.healthIssueIds?.length ? c.healthIssueIds : (c.healthIssueId ? [c.healthIssueId] : []);
+            const nextIds = linkedCheckupIds.includes(c.id || "") ? Array.from(new Set([...oldIds, issueId!])) : oldIds.filter((id) => id !== issueId);
+            return setHealthCheckupIssues(userId, c.id!, nextIds);
+          }));
         }
       }
-
       closeForm();
-    } catch (err) {
-      console.error("handleSave failed:", err);
-      setFormError("Failed to save. Please try again.");
-    } finally {
-      setSaving(false);
-    }
+    } catch (e) {
+      console.error(e);
+      setError(e instanceof Error ? e.message : "Failed to save. Please try again.");
+    } finally { setSaving(false); }
   }
 
-  // ── Delete ──────────────────────────────────────────────
-
-  async function handleDelete(report: MedicalReport) {
-    if (!report.id) return;
-    setDeletingId(report.id);
-    try {
-      await deleteMedicalReport(userId, report.id, report.attachments);
-      setReports((prev) => prev.filter((r) => r.id !== report.id));
-      if (expandedId === report.id) setExpandedId(null);
-    } catch {
-      // silently ignore
-    } finally {
-      setDeletingId(null);
-    }
+  async function removeCheckup(item: HealthCheckup) {
+    if (!item.id) return;
+    await deleteHealthCheckup(userId, item.id, item.attachments || []);
+    if (expandedId === item.id) setExpandedId(null);
   }
 
-  // ── Render ──────────────────────────────────────────────
-
-  if (loading) {
-    return (
-      <div className="flex justify-center py-16">
-        <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent-pink)]" />
-      </div>
-    );
+  async function removeIssue(item: HealthIssue) {
+    if (!item.id) return;
+    await deleteHealthIssue(userId, item.id, item.attachments || []);
+    if (expandedId === item.id) setExpandedId(null);
   }
 
-  const showForm = formMode !== null;
+  const selectedIssues = issues.filter((x) => healthIssueIds.includes(x.id || ""));
+  const referencedCount = referencedAttachments.length;
+
+  if (loading) return <div className="flex justify-center py-16"><span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent-pink)]" /></div>;
 
   return (
     <div className="space-y-5">
-      {/*
-       * The file input is always mounted outside the conditional form block.
-       * This ensures fileInputRef.current is never null when the upload
-       * button is clicked, regardless of how the form toggled since last render.
-       */}
+      <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-[var(--text-primary)] text-base">Intelligent Health Report</h3>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">Keep health issues connected to the checkups, prescriptions and documents that explain them.</p>
+          </div>
+          <FileCheck size={20} className="text-[var(--accent-pink)] shrink-0" />
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setSection("checkups")} className={`rounded-2xl px-3 py-3 text-left transition ${section === "checkups" ? "bg-[var(--accent-pink)] text-white" : "bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)]"}`}>
+            <div className="text-sm font-bold">Health Checkup</div><div className={`text-[10px] mt-0.5 ${section === "checkups" ? "text-white/80" : "text-[var(--text-faint)]"}`}>{checkups.length} records · labs · prescriptions · bills</div>
+          </button>
+          <button type="button" onClick={() => setSection("issues")} className={`rounded-2xl px-3 py-3 text-left transition ${section === "issues" ? "bg-[var(--accent-pink)] text-white" : "bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)]"}`}>
+            <div className="text-sm font-bold">Health Issues</div><div className={`text-[10px] mt-0.5 ${section === "issues" ? "text-white/80" : "text-[var(--text-faint)]"}`}>{issues.length} active/history records · linked evidence</div>
+          </button>
+        </div>
+      </div>
+
       <input
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx"
+        accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx,.csv,.rtf,.odt,.ods"
         className="hidden"
-        onChange={handleFileSelect}
+        onChange={handleFiles}
       />
 
-      {/* Header row */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-bold text-[var(--text-primary)] text-base">Medical Reports</h3>
-          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-            Store health checkups, lab results, prescriptions & more
-          </p>
-        </div>
-        {!showForm && (
-          <button
-            type="button"
-            onClick={openNewForm}
-            className="flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition shadow-sm"
-          >
-            <Plus size={15} />
-            Add Report
-          </button>
-        )}
-      </div>
-
-      {/* Add / Edit Form */}
-      {showForm && (
+      {form && (
         <div className="rounded-3xl border border-[var(--accent-pink)] bg-[var(--bg-elevated)] p-5 shadow-sm space-y-4">
-          {/* Form header */}
-          <div className="flex items-center justify-between">
-            <h4 className="font-bold text-[var(--text-primary)]">
-              {formMode === "edit" ? "Edit Medical Report" : "New Medical Report"}
-            </h4>
-            <button
-              type="button"
-              onClick={closeForm}
-              className="text-[var(--text-faint)] hover:text-[var(--text-secondary)] transition"
-            >
-              <X size={18} />
-            </button>
+          <div className="flex items-center justify-between"><div><h4 className="font-bold text-[var(--text-primary)]">{editingId ? "Edit" : "Add"} {form === "issue" ? "Health Issue" : "Health Checkup"}</h4><p className="text-[10px] text-[var(--text-faint)] mt-0.5">{form === "checkup" ? "Store the medical evidence." : "Describe the problem and connect its evidence."}</p></div><button type="button" onClick={closeForm}><X size={18} className="text-[var(--text-faint)]" /></button></div>
+          {form === "checkup" && (
+            <div className="space-y-1.5"><label className="text-xs font-semibold text-[var(--text-secondary)]">TYPE</label><div className="flex flex-wrap gap-2">{(Object.entries(CHECKUP_META) as [CheckupCategory, {label:string;emoji:string}][]).map(([v,m]) => <button key={v} type="button" onClick={() => setCategory(v)} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${category === v ? "border-[var(--accent-pink)] text-[var(--accent-pink)] bg-[var(--accent-pink-soft)]" : "border-[var(--border)] text-[var(--text-secondary)]"}`}>{m.emoji} {m.label}</button>)}</div></div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5"><label className="text-xs font-semibold text-[var(--text-secondary)]">TITLE *</label><input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={form === "issue" ? "e.g. Recurring migraine" : "e.g. CBC Blood Test"} /></div>
+            <div className="space-y-1.5"><label className="text-xs font-semibold text-[var(--text-secondary)]">DATE *</label><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} /></div>
           </div>
+          {form === "checkup" && <div className="space-y-1.5"><div className="flex items-center justify-between"><label className="text-xs font-semibold text-[var(--text-secondary)]">REFERS TO HEALTH ISSUES <span className="font-normal text-[var(--text-faint)]">(optional · multiple)</span></label><span className="text-[10px] font-bold text-[var(--accent-pink)]">{healthIssueIds.length} selected</span></div><div className="max-h-40 overflow-auto space-y-1.5 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-2">{issues.length === 0 && <p className="px-2 py-2 text-[10px] text-[var(--text-faint)]">No health issues yet.</p>}{issues.map((i) => { const selected = healthIssueIds.includes(i.id || ""); return <button type="button" key={i.id} onClick={() => setHealthIssueIds((p) => selected ? p.filter((id) => id !== i.id) : [...p, i.id!])} className={`w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left border ${selected ? "border-[var(--accent-pink)] bg-[var(--accent-pink-soft)]" : "border-[var(--border)]"}`}><Check size={14} className={selected ? "text-[var(--accent-pink)]" : "text-transparent"}/><span className="min-w-0 flex-1"><span className="block text-xs font-semibold truncate text-[var(--text-primary)]">{i.title}</span><span className="block text-[9px] text-[var(--text-faint)]">{i.date}</span></span></button>; })}</div>{selectedIssues.length > 0 && <p className="text-[10px] text-[var(--accent-pink)] font-semibold">✓ Linked to {selectedIssues.map((i) => i.title).join(", ")}</p>}</div>}
+          {form === "issue" && checkups.length > 0 && <div className="space-y-1.5"><div className="flex items-center justify-between"><label className="text-xs font-semibold text-[var(--text-secondary)]">LINK HEALTH CHECKUPS <span className="font-normal text-[var(--text-faint)]">(optional · multiple)</span></label><span className="text-[10px] font-bold text-[var(--accent-pink)]">{linkedCheckupIds.length} selected</span></div><div className="max-h-48 overflow-auto space-y-1.5 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-2">{checkups.map((c) => { const selected = linkedCheckupIds.includes(c.id || ""); const meta = CHECKUP_META[c.category] || CHECKUP_META.other; return <button type="button" key={c.id} onClick={() => setLinkedCheckupIds((p) => selected ? p.filter((id) => id !== c.id) : [...p, c.id!])} className={`w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left border ${selected ? "border-[var(--accent-pink)] bg-[var(--accent-pink-soft)]" : "border-[var(--border)]"}`}><Check size={14} className={selected ? "text-[var(--accent-pink)]" : "text-transparent"}/><span>{meta.emoji}</span><span className="min-w-0 flex-1"><span className="block text-xs font-semibold truncate text-[var(--text-primary)]">{c.title}</span><span className="block text-[9px] text-[var(--text-faint)]">{meta.label} · {c.date}</span></span></button>; })}</div></div>}
+          <div className="space-y-1.5"><label className="text-xs font-semibold text-[var(--text-secondary)]">NOTES</label><textarea className={`${inputCls} resize-none`} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Observations, symptoms, doctor notes…" /></div>
 
-          {/* Category picker */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
-              Category
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {(Object.entries(CATEGORY_META) as [ReportCategory, typeof CATEGORY_META[ReportCategory]][]).map(
-                ([val, meta]) => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => setCategory(val)}
-                    className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
-                      category === val
-                        ? "border-[var(--accent-pink)] bg-[var(--bg-elevated)] text-[var(--accent-pink)]"
-                        : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-card)]"
-                    }`}
-                  >
-                    <span>{meta.emoji}</span> {meta.label}
-                  </button>
-                )
-              )}
-            </div>
-          </div>
-
-          {/* Title */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
-              Title *
-            </label>
-            <input
-              className={inputCls}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Annual Blood Test, Thyroid Checkup"
-            />
-          </div>
-
-          {/* Date */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
-              Date *
-            </label>
-            <input
-              type="date"
-              className={inputCls}
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-
-          {/* Notes */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
-              Notes
-            </label>
-            <textarea
-              className={`${inputCls} resize-none`}
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Symptoms, doctor notes, observations…"
-            />
-          </div>
-
-          {/* Attachments section */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
-              Attachments (images, PDFs, documents)
-            </label>
-
-            {/* Already-saved attachments (edit mode) */}
-            {existingAttachments.length > 0 && (
-              <div className="space-y-2">
-                {existingAttachments.map((att, idx) => (
-                  <div
-                    key={`existing-${idx}-${att.storagePath}`}
-                    className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5"
-                  >
-                    {isImage(att.type) ? (
-                      <ImageIcon size={16} className="text-[var(--accent-blue)] shrink-0" />
-                    ) : (
-                      <FileText size={16} className="text-[var(--accent-yellow)] shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-[var(--text-primary)] truncate">{att.name}</p>
-                      <p className="text-[10px] text-[var(--text-faint)]">{formatBytes(att.size)}</p>
-                    </div>
-                    <span className="text-[10px] font-semibold text-[var(--success)] shrink-0">saved</span>
-                    <button
-                      type="button"
-                      onClick={() => removeExistingAttachment(att)}
-                      className="text-[var(--text-faint)] hover:text-[var(--danger)] transition shrink-0"
-                      title="Remove attachment"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Upload zone — triggers the always-mounted hidden input */}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[var(--border)] py-5 text-sm font-semibold text-[var(--text-secondary)] hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)] transition"
-            >
-              <Upload size={18} />
-              Click to upload files
-            </button>
-
-            {/* Newly selected (not yet uploaded) files */}
-            {selectedFiles.length > 0 && (
-              <div className="space-y-2">
-                {selectedFiles.map((file, idx) => (
-                  <div
-                    key={`new-${idx}-${file.name}-${file.size}`}
-                    className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5"
-                  >
-                    {isImage(file.type) ? (
-                      <ImageIcon size={16} className="text-[var(--accent-blue)] shrink-0" />
-                    ) : (
-                      <FileText size={16} className="text-[var(--accent-yellow)] shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-[var(--text-primary)] truncate">{file.name}</p>
-                      <p className="text-[10px] text-[var(--text-faint)]">{formatBytes(file.size)}</p>
-                      {uploadProgress[file.name] !== undefined && (
-                        <div className="mt-1 h-1 w-full rounded-full bg-[var(--border)] overflow-hidden">
-                          <div
-                            className="h-full bg-[var(--accent-pink)] rounded-full transition-all"
-                            style={{ width: `${uploadProgress[file.name]}%` }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeSelectedFile(idx)}
-                      className="text-[var(--text-faint)] hover:text-[var(--danger)] transition shrink-0"
-                      title="Remove file"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Error banner */}
-          {formError && (
-            <div className="flex items-center gap-2 rounded-xl bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
-              <AlertCircle size={16} />
-              {formError}
-            </div>
+          {form === "issue" && checkups.some((c) => (c.attachments || []).length > 0) && (
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-3 space-y-2"><div className="flex items-center justify-between"><div><p className="text-xs font-bold text-[var(--text-primary)]">Reference checkup evidence</p><p className="text-[10px] text-[var(--text-faint)]">Select attachments already stored in Health Checkup.</p></div><span className="text-[10px] font-bold text-[var(--accent-pink)]">{referencedCount} selected</span></div><div className="space-y-2 max-h-52 overflow-auto">{checkups.flatMap((c) => (c.attachments || []).map((a) => ({c,a}))).map(({c,a}) => { const selected = referencedAttachments.some((x) => x.checkupId === c.id && x.storagePath === a.storagePath); return <button type="button" key={`${c.id}-${a.storagePath}`} onClick={() => toggleReference(c,a)} className={`w-full flex items-center gap-2 rounded-xl border px-3 py-2 text-left ${selected ? "border-[var(--accent-pink)] bg-[var(--accent-pink-soft)]" : "border-[var(--border)]"}`}><Check size={14} className={selected ? "text-[var(--accent-pink)]" : "text-transparent"} />{isImage(a.type) ? <ImageIcon size={15} /> : <FileText size={15} />}<span className="min-w-0 flex-1"><span className="block text-xs font-semibold truncate text-[var(--text-primary)]">{a.name}</span><span className="block text-[9px] text-[var(--text-faint)]">{c.title} · {c.date}</span></span></button>})}</div></div>
           )}
 
-          {/* Action row */}
-          <div className="flex gap-3 pt-1">
-            <button
-              type="button"
-              onClick={closeForm}
-              className="flex-1 rounded-xl border border-[var(--border)] py-2.5 text-sm font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-card)] transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[var(--accent-pink)] py-2.5 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-60"
-            >
-              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-              {saving ? "Saving…" : formMode === "edit" ? "Update Report" : "Save Report"}
-            </button>
-          </div>
+          <div className="space-y-2"><label className="text-xs font-semibold text-[var(--text-secondary)]">ATTACHMENTS</label>{existingAttachments.map((a) => <div key={a.storagePath} className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2">{isImage(a.type) ? <ImageIcon size={15} /> : <FileText size={15} />}<span className="flex-1 truncate text-xs font-semibold text-[var(--text-primary)]">{a.name}</span><button type="button" onClick={() => removeExisting(a)}><X size={14} className="text-[var(--text-faint)]" /></button></div>)}<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full rounded-2xl border-2 border-dashed border-[var(--border)] py-4 text-sm font-semibold text-[var(--text-secondary)] hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)]"><Upload size={17} className="inline mr-2" />Add attachments</button>{selectedFiles.map((f,i) => <div key={`${f.name}-${i}`} className="flex items-center gap-2 text-xs text-[var(--text-secondary)]"><FileText size={14}/><span className="flex-1 truncate">{f.name}</span>{uploadProgress[f.name] !== undefined && <span>{uploadProgress[f.name]}%</span>}<button type="button" onClick={() => setSelectedFiles((p) => p.filter((_,x) => x !== i))}><X size={13}/></button></div>)}</div>
+          {error && <div className="rounded-xl bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger)]">{error}</div>}
+          <div className="flex gap-3"><button type="button" onClick={closeForm} className="flex-1 rounded-xl border border-[var(--border)] py-2.5 text-sm font-semibold text-[var(--text-secondary)]">Cancel</button><button type="button" disabled={saving} onClick={save} className="flex-1 rounded-xl bg-[var(--accent-pink)] py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Saving…" : editingId ? "Update" : "Save"}</button></div>
         </div>
       )}
 
-      {/* Empty state */}
-      {reports.length === 0 && !showForm && (
-        <div className="flex flex-col items-center py-16 text-center rounded-3xl border border-dashed border-[var(--border)] bg-[var(--bg-elevated)]">
-          <div className="h-14 w-14 rounded-2xl bg-[var(--accent-pink-soft)] flex items-center justify-center mb-3">
-            <ClipboardList size={26} className="text-[var(--accent-pink)]" />
-          </div>
-          <h4 className="font-bold text-[var(--text-primary)]">No reports yet</h4>
-          <p className="text-sm text-[var(--text-secondary)] mt-1 max-w-xs">
-            Upload health checkup logs, lab results, prescriptions, or any medical documents.
-          </p>
-          <button
-            type="button"
-            onClick={openNewForm}
-            className="mt-4 flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition"
-          >
-            <Plus size={15} />
-            Add your first report
-          </button>
+      {section === "checkups" ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between"><div><h4 className="font-bold text-[var(--text-primary)]">Health Checkup</h4><p className="text-xs text-[var(--text-secondary)]">Lab reports, prescriptions, bills and other medical records.</p></div><button type="button" onClick={() => openNewCheckup()} className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-pink)] px-3 py-2 text-xs font-semibold text-white"><Plus size={14}/> Add Checkup</button></div>
+          {checkups.length === 0 && !form && <EmptyMedical title="No health checkups yet" text="Add a lab report, prescription, bill or other medical document." onClick={() => openNewCheckup()} />}
+          {checkups.map((c) => <CheckupCard key={c.id} item={c} issues={issues.filter((i) => (c.healthIssueIds?.length ? c.healthIssueIds : (c.healthIssueId ? [c.healthIssueId] : [])).includes(i.id || ""))} expanded={expandedId === c.id} onExpand={() => setExpandedId(expandedId === c.id ? null : (c.id || null))} onEdit={() => openEditCheckup(c)} onDelete={() => void removeCheckup(c)} onPreview={setLightboxUrl} />)}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between"><div><h4 className="font-bold text-[var(--text-primary)]">Health Issues</h4><p className="text-xs text-[var(--text-secondary)]">Each issue becomes a timeline with its supporting checkup evidence.</p></div><button type="button" onClick={openNewIssue} className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-pink)] px-3 py-2 text-xs font-semibold text-white"><Plus size={14}/> Add Issue</button></div>
+          {issues.length === 0 && !form && <EmptyMedical title="No health issues yet" text="Create an issue, then add checkups directly from it." onClick={openNewIssue} />}
+          {issues.map((i) => { const linked = checkups.filter((c) => (c.healthIssueIds?.length ? c.healthIssueIds : (c.healthIssueId ? [c.healthIssueId] : [])).includes(i.id || "")); return <IssueCard key={i.id} item={i} linked={linked} expanded={expandedId === i.id} onExpand={() => setExpandedId(expandedId === i.id ? null : (i.id || null))} onEdit={() => openEditIssue(i)} onDelete={() => void removeIssue(i)} onPreview={setLightboxUrl} onAddCheckup={() => openNewCheckup(i.id || null)} />; })}
         </div>
       )}
 
-      {/* Reports list */}
-      {reports.map((report) => {
-        const meta          = CATEGORY_META[report.category];
-        const isExpanded    = expandedId === report.id;
-        const isBeingEdited = formMode === "edit" && editingReportId === report.id;
-
-        return (
-          <div
-            key={report.id}
-            className={`rounded-3xl border bg-[var(--bg-elevated)] shadow-sm overflow-hidden transition ${
-              isBeingEdited
-                ? "border-[var(--accent-pink)] opacity-50 pointer-events-none"
-                : "border-[var(--border)]"
-            }`}
-          >
-            {/* Collapse / expand header */}
-            <button
-              type="button"
-              onClick={() => setExpandedId(isExpanded ? null : (report.id ?? null))}
-              className="w-full flex items-center gap-3 p-4 text-left hover:bg-[var(--bg-card)] transition"
-            >
-              <div
-                className="h-10 w-10 rounded-xl flex items-center justify-center text-lg shrink-0"
-                style={{ backgroundColor: `${meta.color}18` }}
-              >
-                {meta.emoji}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-[var(--text-primary)] truncate">{report.title}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span
-                    className="text-[10px] font-semibold uppercase tracking-wide"
-                    style={{ color: meta.color }}
-                  >
-                    {meta.label}
-                  </span>
-                  <span className="text-[var(--text-faint)] text-[10px]">·</span>
-                  <span className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
-                    <Calendar size={10} />
-                    {new Date(report.date + "T00:00:00").toLocaleDateString("en-IN", {
-                      day: "numeric", month: "short", year: "numeric",
-                    })}
-                  </span>
-                  {report.attachments.length > 0 && (
-                    <>
-                      <span className="text-[var(--text-faint)] text-[10px]">·</span>
-                      <span className="text-[10px] text-[var(--text-secondary)]">
-                        {report.attachments.length} file{report.attachments.length > 1 ? "s" : ""}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-              <ChevronRight
-                size={16}
-                className={`text-[var(--text-faint)] shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-              />
-            </button>
-
-            {/* Expanded detail */}
-            {isExpanded && (
-              <div className="px-4 pb-4 space-y-4 border-t border-[var(--border)]">
-                {report.notes && (
-                  <div className="pt-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">
-                      Notes
-                    </p>
-                    <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{report.notes}</p>
-                  </div>
-                )}
-
-                {report.attachments.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-2">
-                      Attachments
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {report.attachments.map((att, idx) =>
-                        isImage(att.type) ? (
-                          <button
-                            key={`img-${idx}-${att.storagePath}`}
-                            type="button"
-                            onClick={() => setLightboxUrl(att.url)}
-                            className="relative rounded-xl overflow-hidden border border-[var(--border)] aspect-square group"
-                          >
-                            <img
-                              src={att.url}
-                              alt={att.name}
-                              className="w-full h-full object-cover group-hover:opacity-90 transition"
-                            />
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition" />
-                            <p className="absolute bottom-0 left-0 right-0 bg-black/50 px-2 py-1 text-[9px] text-white truncate">
-                              {att.name}
-                            </p>
-                          </button>
-                        ) : (
-                          <a
-                            key={`doc-${idx}-${att.storagePath}`}
-                            href={att.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-3 hover:border-[var(--accent-pink)] transition group"
-                          >
-                            <FileCheck size={18} className="text-[var(--accent-yellow)] shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-pink)]">
-                                {att.name}
-                              </p>
-                              <p className="text-[10px] text-[var(--text-faint)]">{formatBytes(att.size)}</p>
-                            </div>
-                          </a>
-                        )
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Edit / Delete row */}
-                <div className="flex items-center justify-between pt-1">
-                  <button
-                    type="button"
-                    onClick={() => openEditForm(report)}
-                    disabled={showForm}
-                    className="flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-card)] transition disabled:opacity-40"
-                  >
-                    <Edit3 size={13} />
-                    Edit Report
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(report)}
-                    disabled={deletingId === report.id || showForm}
-                    className="flex items-center gap-1.5 rounded-xl border border-[var(--danger-soft)] px-3 py-2 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)] transition disabled:opacity-50"
-                  >
-                    {deletingId === report.id ? (
-                      <Loader2 size={13} className="animate-spin" />
-                    ) : (
-                      <Trash2 size={13} />
-                    )}
-                    Delete
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
-
-      {/* Image lightbox */}
-      {lightboxUrl && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setLightboxUrl(null)}
-        >
-          <button
-            type="button"
-            onClick={() => setLightboxUrl(null)}
-            className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition"
-          >
-            <X size={18} />
-          </button>
-          <img
-            src={lightboxUrl}
-            alt="Preview"
-            className="max-h-[90vh] max-w-full rounded-2xl object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+      {lightboxUrl && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setLightboxUrl(null)}><button type="button" onClick={() => setLightboxUrl(null)} className="absolute top-4 right-4 text-white"><X size={22}/></button><img src={lightboxUrl} alt="Preview" className="max-h-[90vh] max-w-full rounded-2xl object-contain" onClick={(e) => e.stopPropagation()} /></div>}
     </div>
   );
 }
+
+function EmptyMedical({ title, text, onClick }: { title: string; text: string; onClick: () => void }) {
+  return <div className="rounded-3xl border border-dashed border-[var(--border)] bg-[var(--bg-elevated)] p-10 text-center"><ClipboardList size={28} className="mx-auto text-[var(--accent-pink)]"/><h4 className="mt-3 font-bold text-[var(--text-primary)]">{title}</h4><p className="mt-1 text-xs text-[var(--text-secondary)]">{text}</p><button type="button" onClick={onClick} className="mt-4 rounded-xl bg-[var(--accent-pink)] px-4 py-2 text-xs font-semibold text-white">Get started</button></div>;
+}
+
+function AttachmentList({ attachments, onPreview, referenced = false }: { attachments: MedicalAttachment[]; onPreview: (url: string) => void; referenced?: boolean }) {
+  if (!attachments.length) return null;
+  return <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{attachments.map((a) => <a key={`${a.storagePath}-${a.url}`} href={a.url} target="_blank" rel="noreferrer" onClick={(e) => { if (isImage(a.type)) { e.preventDefault(); onPreview(a.url); } }} className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5 hover:border-[var(--accent-pink)]">{isImage(a.type) ? <ImageIcon size={16} className="text-[var(--accent-blue)]"/> : <FileText size={16} className="text-[var(--accent-yellow)]"/>}<span className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--text-primary)]">{a.name}</span>{referenced && <span className="text-[9px] font-bold text-[var(--accent-pink)]">linked</span>}</a>)}</div>;
+}
+
+function CheckupCard({ item, issues, expanded, onExpand, onEdit, onDelete, onPreview }: { item: HealthCheckup; issues: HealthIssue[]; expanded: boolean; onExpand: () => void; onEdit: () => void; onDelete: () => void; onPreview: (url: string) => void }) {
+  const meta = CHECKUP_META[item.category] || CHECKUP_META.other;
+  return <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] overflow-hidden shadow-sm"><button type="button" onClick={onExpand} className="w-full flex items-center gap-3 p-4 text-left"><div className="h-10 w-10 rounded-2xl bg-[var(--accent-pink-soft)] flex items-center justify-center text-lg">{meta.emoji}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><h4 className="font-bold text-sm text-[var(--text-primary)] truncate">{item.title}</h4>{issues.map((issue) => <span key={issue.id} className="rounded-full bg-[var(--accent-blue-soft)] px-2 py-0.5 text-[9px] font-bold text-[var(--accent-blue)]">↗ {issue.title}</span>)}</div><p className="text-[10px] text-[var(--text-faint)] mt-0.5">{meta.label} · {item.date} · {issues.length} linked issue{issues.length === 1 ? "" : "s"}</p></div><ChevronRight size={17} className={`text-[var(--text-faint)] transition ${expanded ? "rotate-90" : ""}`}/></button>{expanded && <div className="border-t border-[var(--border)] px-4 pb-4 pt-3 space-y-3"><p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{item.notes || "No notes added."}</p><AttachmentList attachments={item.attachments || []} onPreview={onPreview}/><div className="flex justify-between pt-1"><button type="button" onClick={onEdit} className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)]">Edit</button><button type="button" onClick={onDelete} className="rounded-xl border border-[var(--danger-soft)] px-3 py-2 text-xs font-semibold text-[var(--danger)]">Delete</button></div></div>}</div>;
+}
+
+function IssueCard({ item, linked, expanded, onExpand, onEdit, onDelete, onPreview, onAddCheckup }: { item: HealthIssue; linked: HealthCheckup[]; expanded: boolean; onExpand: () => void; onEdit: () => void; onDelete: () => void; onPreview: (url: string) => void; onAddCheckup: () => void }) {
+  return <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] overflow-hidden shadow-sm"><button type="button" onClick={onExpand} className="w-full flex items-center gap-3 p-4 text-left"><div className="h-10 w-10 rounded-2xl bg-[var(--danger-soft)] flex items-center justify-center"><Heart size={19} className="text-[var(--danger)]"/></div><div className="min-w-0 flex-1"><h4 className="font-bold text-sm text-[var(--text-primary)] truncate">{item.title}</h4><p className="text-[10px] text-[var(--text-faint)] mt-0.5">Started {item.date} · {linked.length} linked checkup{linked.length === 1 ? "" : "s"}</p></div><ChevronRight size={17} className={`text-[var(--text-faint)] transition ${expanded ? "rotate-90" : ""}`}/></button>{expanded && <div className="border-t border-[var(--border)] px-4 pb-4 pt-3 space-y-4"><p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{item.notes || "No notes added."}</p>{item.referencedAttachments?.length > 0 && <div><p className="mb-2 text-xs font-bold text-[var(--text-primary)]">Referenced checkup evidence</p><AttachmentList attachments={item.referencedAttachments} onPreview={onPreview} referenced/></div>}{item.attachments?.length > 0 && <div><p className="mb-2 text-xs font-bold text-[var(--text-primary)]">Issue attachments</p><AttachmentList attachments={item.attachments} onPreview={onPreview}/></div>}<div className="rounded-2xl border border-[var(--accent-pink)] bg-[var(--accent-pink-soft)] p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold text-[var(--text-primary)]">Health Checkup timeline</p><p className="text-[10px] text-[var(--text-secondary)]">Add a checkup now and it will automatically refer to this issue.</p></div><button type="button" onClick={onAddCheckup} className="shrink-0 rounded-xl bg-[var(--accent-pink)] px-3 py-2 text-[10px] font-bold text-white"><Plus size={13} className="inline mr-1"/>Add Checkup</button></div>{linked.length > 0 && <div className="mt-3 space-y-3">{linked.map((c) => <div key={c.id} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3"><div className="flex items-center gap-2"><span className="text-sm">{CHECKUP_META[c.category]?.emoji || "📄"}</span><span className="min-w-0 flex-1 text-xs font-semibold text-[var(--text-primary)] truncate">{c.title}</span><span className="text-[9px] text-[var(--text-faint)]">{c.date}</span></div>{c.attachments?.length > 0 && <div className="mt-2 space-y-1.5"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-faint)]">Documents ({c.attachments.length})</p>{c.attachments.map((a) => <a key={`${c.id}-${a.storagePath}`} href={a.url} target="_blank" rel="noreferrer" onClick={(e) => { if (isImage(a.type)) { e.preventDefault(); onPreview(a.url); } }} className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-2 hover:border-[var(--accent-pink)]"><span className="shrink-0">{isImage(a.type) ? <ImageIcon size={14} className="text-[var(--accent-blue)]"/> : <FileText size={14} className="text-[var(--accent-yellow)]"/>}</span><span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-[var(--text-primary)]">{a.name}</span><span className="shrink-0 text-[9px] font-semibold text-[var(--accent-pink)]">Open ↗</span></a>)}</div>}{!c.attachments?.length && <p className="mt-2 text-[9px] text-[var(--text-faint)]">No documents attached to this checkup.</p>}</div>)}</div>}</div><div className="flex justify-between"><button type="button" onClick={onEdit} className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)]">Edit</button><button type="button" onClick={onDelete} className="rounded-xl border border-[var(--danger-soft)] px-3 py-2 text-xs font-semibold text-[var(--danger)]">Delete</button></div></div>}</div>;
+}
+
 
 // ── Main ProfileView ───────────────────────────────────────
 

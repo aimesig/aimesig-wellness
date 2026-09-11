@@ -18,6 +18,12 @@ service cloud.firestore {
       match /medicalReports/{reportId} {
         allow read, write: if isOwner(userId);
       }
+      match /healthCheckups/{checkupId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /healthIssues/{issueId} {
+        allow read, write: if isOwner(userId);
+      }
     }
     function isOwner(userId) {
       return request.auth != null
