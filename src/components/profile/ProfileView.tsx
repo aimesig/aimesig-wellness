@@ -7,9 +7,8 @@ import {
   Scale,
   Target,
   Activity,
-  Droplets,
   Moon,
-  Sun,
+  Droplets,
   Utensils,
   Heart,
   Edit3,
@@ -39,8 +38,6 @@ import {
   calculateTDEE,
   type FitnessProfile,
 } from "../../services/profileService";
-import { useTheme } from "../../context/ThemeContext";
-import { saveUserTheme } from "../../services/themeService";
 import { getWeightRoutine, getWeightEntries } from "../../services/weightService";
 import {
   subscribeHealthCheckups,
@@ -483,7 +480,6 @@ function IssueCard({ item, linked, expanded, onExpand, onEdit, onDelete, onPrevi
 // ── Main ProfileView ───────────────────────────────────────
 
 export function ProfileView({ userId, userName, onNameChange, onSignOut }: ProfileViewProps) {
-  const { theme, setTheme } = useTheme();
   const [profile, setProfile]           = useState<FitnessProfile | null>(null);
   const [liveWeightKg, setLiveWeightKg] = useState<number | null>(null);
   const [editing, setEditing]           = useState(false);
@@ -560,11 +556,6 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
     setDraft(profile ?? { ...EMPTY_PROFILE, name: userName });
     setStep("personal");
     setEditing(true);
-  }
-
-  function handleThemeSelect(next: "light" | "dark") {
-    setTheme(next);
-    void saveUserTheme(userId, next);
   }
 
   function update<K extends keyof FitnessProfile>(key: K, value: FitnessProfile[K]) {
@@ -701,7 +692,6 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
   if (!profile) {
     return (
       <div className="space-y-5">
-        <AppearanceCard theme={theme} onSelect={handleThemeSelect} />
         <div className="flex flex-col items-center py-16 text-center">
           <div className="h-16 w-16 rounded-2xl bg-[var(--accent-pink-soft)] flex items-center justify-center mb-4">
             <User size={28} className="text-[var(--accent-pink)]" />
@@ -751,8 +741,6 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
           Profile saved successfully!
         </div>
       )}
-
-      <AppearanceCard theme={theme} onSelect={handleThemeSelect} />
 
       {/* Identity card */}
       <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-sm">
@@ -1274,37 +1262,6 @@ function StepSummary({ draft }: { draft: FitnessProfile }) {
 }
 
 // ── Shared UI helpers ──────────────────────────────────────
-
-function AppearanceCard({ theme, onSelect }: {
-  theme: "light" | "dark";
-  onSelect: (t: "light" | "dark") => void;
-}) {
-  return (
-    <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
-      <p className="text-sm font-bold text-[var(--text-primary)]">Appearance</p>
-      <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
-        This device remembers your pick — it's saved to your account too.
-      </p>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        {(["dark", "light"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => onSelect(t)}
-            className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold transition ${
-              theme === t
-                ? "border-[var(--accent-pink)] bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]"
-                : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent-pink)]"
-            }`}
-          >
-            {t === "dark" ? <Moon size={15} /> : <Sun size={15} />}
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 const inputCls =
   "w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] placeholder-[var(--text-faint)] focus:border-[var(--accent-pink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-pink)]/20 transition";

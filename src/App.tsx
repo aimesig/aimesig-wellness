@@ -2,6 +2,7 @@ import {
   BookOpen,
   BarChart3,
   CalendarDays,
+  MessageCircle,
   Check,
   Flame,
   Home,
@@ -26,6 +27,7 @@ import { ProfileView } from "./components/profile/ProfileView";
 import { RoutineManager } from "./components/routines/RoutineManager";
 import { ImageLightbox } from "./components/ui/ImageLightbox";
 import { RoutineAnalytics } from "./components/analytics/RoutineAnalytics";
+import { ChatbotView } from "./components/analytics/ChatbotView";
 
 import type { Routine, RoutineLog, RoutineStatus } from "./types/routine";
 import { getRoutines } from "./services/routineService";
@@ -92,11 +94,12 @@ function LoadingScreen() {
 
 // ─── nav ───────────────────────────────────────────────────────────────────
 
-type NavTab = "Home" | "My Routines" | "Calendar" | "Analytics" | "Profile";
+type NavTab = "Home" | "My Routines" | "Chatbot" | "Calendar" | "Analytics" | "Profile";
 
 const NAV: { label: NavTab; icon: typeof Home }[] = [
   { label: "Home",        icon: Home        },
   { label: "My Routines", icon: BookOpen    },
+  { label: "Chatbot",     icon: MessageCircle },
   { label: "Calendar",    icon: CalendarDays},
   { label: "Analytics",   icon: BarChart3   },
 ];
@@ -158,6 +161,13 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
           <>
             <PageHeader title="My Routines" subtitle="Create and manage routines" />
             <RoutineManager userId={userId} />
+          </>
+        );
+      case "Chatbot":
+        return (
+          <>
+            <PageHeader title="Chatbot" subtitle="Private AI for your routines and health records" />
+            <ChatbotView userId={userId} />
           </>
         );
       case "Calendar":

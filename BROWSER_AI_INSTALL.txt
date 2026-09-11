@@ -1,0 +1,6 @@
+Run once in the existing project:
+
+npm install @huggingface/transformers
+npm run build
+
+No Ollama installation is required.
