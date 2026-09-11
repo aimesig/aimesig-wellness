@@ -25,6 +25,7 @@ function createRoutine(
     alternateDay: false,
     inputType: "none",
     unit: "",
+    inputFields: [],
     startDate: Timestamp.fromDate(
       new Date(2026, 8, 7),
     ),

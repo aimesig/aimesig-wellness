@@ -7,7 +7,24 @@ export type RoutineFrequency =
   | "yearly"
   | "selectedDates";
 
-export type RoutineInputType = "none" | "number";
+/** A single named numeric field on a routine (e.g. { key: "consume", label: "Consume", unit: "litres" }). */
+export interface RoutineInputField {
+  /** Machine key — unique within the routine, used as the Firestore map key in logs. */
+  key: string;
+  /** Human-readable label shown in the UI. */
+  label: string;
+  /** Unit string displayed alongside the input, e.g. "litres", "sips". */
+  unit: string;
+}
+
+/**
+ * "none"  → Yes / No only (no numeric fields)
+ * "multi" → One or more named numeric fields (replaces the old "number" type)
+ *
+ * The old "number" type is kept as a union member so existing Firestore docs
+ * that still carry inputType:"number" continue to render correctly.
+ */
+export type RoutineInputType = "none" | "number" | "multi";
 
 export type RoutineStatus = "pending" | "yes" | "no";
 
@@ -33,8 +50,19 @@ export interface Routine {
   frequency: RoutineFrequency;
   schedule: RoutineSchedule;
   alternateDay: boolean;
+  /**
+   * "none"   → Yes / No only
+   * "multi"  → named numeric fields defined by `inputFields`
+   * "number" → legacy single-value (read-only; new routines use "multi")
+   */
   inputType: RoutineInputType;
+  /** Legacy single-unit label (inputType === "number"). Empty for "multi"/"none". */
   unit: string;
+  /**
+   * Named numeric fields used when inputType === "multi".
+   * Empty / absent for "none" and legacy "number" routines.
+   */
+  inputFields: RoutineInputField[];
   startDate: Timestamp;
   endDate: Timestamp | null;
   active: boolean;
@@ -55,7 +83,14 @@ export interface RoutineLog {
   date: Timestamp;
   status: RoutineStatus;
   remark: string;
+  /** Legacy single numeric value (inputType === "number"). Null for "multi" logs. */
   value: number | null;
+  /**
+   * Named numeric values for "multi" routines.
+   * Keys match RoutineInputField.key; values are the logged numbers.
+   * Absent / empty object for "none" and legacy "number" logs.
+   */
+  values: Record<string, number>;
   /** Download URL of an attached image stored in Firebase Storage, or null. */
   imageUrl: string | null;
   createdAt: Timestamp;

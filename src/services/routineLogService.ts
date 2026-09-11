@@ -65,7 +65,13 @@ export interface RoutineLogInput {
   date: Timestamp;
   status: RoutineStatus;
   remark: string;
+  /** Legacy single value (inputType === "number"). Null for "multi"/"none". */
   value: number | null;
+  /**
+   * Named numeric values for "multi" routines.
+   * Keys match RoutineInputField.key; values are the logged numbers.
+   */
+  values: Record<string, number>;
   imageUrl: string | null;
 }
 
@@ -90,6 +96,8 @@ export async function getRoutineLog(
   const logDoc = snapshot.docs[0];
 
   return {
+    // Backfill `values` for legacy logs that don't have it.
+    values: {},
     id: logDoc.id,
     ...logDoc.data(),
   } as RoutineLog;
@@ -118,6 +126,7 @@ export async function saveRoutineLog(
       status: input.status,
       remark: input.remark.trim(),
       value: input.value,
+      values: input.values,
       imageUrl: input.imageUrl,
       updatedAt: serverTimestamp(),
     });
@@ -131,6 +140,7 @@ export async function saveRoutineLog(
     status: input.status,
     remark: input.remark.trim(),
     value: input.value,
+    values: input.values,
     imageUrl: input.imageUrl,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -160,6 +170,7 @@ export async function getRoutineLogsForDate(
   const snapshot = await getDocs(logsQuery);
 
   return snapshot.docs.map((logDoc) => ({
+    values: {},
     id: logDoc.id,
     ...logDoc.data(),
   })) as RoutineLog[];

@@ -54,16 +54,17 @@ export function RoutineLogPanel({
   const [selectedDate, setSelectedDate] = useState(formatDateForInput(date));
   const [status, setStatus] = useState<RoutineStatus>("pending");
   const [remark, setRemark] = useState("");
+
+  // Legacy single-value (inputType === "number")
   const [value, setValue] = useState("");
 
+  // Multi-field values: Record<fieldKey, stringified number>
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+
   // Image state
-  /** URL already saved in Firestore (loaded from an existing log). */
   const [savedImageUrl, setSavedImageUrl] = useState<string | null>(null);
-  /** New file chosen by the user but not yet uploaded. */
   const [pendingImage, setPendingImage] = useState<File | null>(null);
-  /** Object URL for previewing pendingImage locally. */
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  /** Whether the user wants to remove the existing saved image on next save. */
   const [removeImage, setRemoveImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -76,6 +77,13 @@ export function RoutineLogPanel({
   const [error, setError] = useState("");
 
   const selectedDateObject = dateFromInput(selectedDate);
+
+  const isMulti =
+    routine.inputType === "multi" &&
+    Array.isArray(routine.inputFields) &&
+    routine.inputFields.length > 0;
+
+  const isLegacyNumber = routine.inputType === "number";
 
   // Clean up local object URL when component unmounts or preview changes.
   useEffect(() => {
@@ -105,21 +113,35 @@ export function RoutineLogPanel({
           setExistingLogId(log.id);
           setStatus(log.status);
           setRemark(log.remark ?? "");
+          // Legacy single value
           setValue(
             log.value === null || log.value === undefined
               ? ""
               : String(log.value),
           );
+          // Multi-field values
+          const loaded: Record<string, string> = {};
+          if (isMulti && log.values) {
+            for (const field of routine.inputFields) {
+              const v = log.values[field.key];
+              loaded[field.key] = v !== undefined ? String(v) : "";
+            }
+          }
+          setFieldValues(loaded);
           setSavedImageUrl(log.imageUrl ?? null);
         } else {
           setExistingLogId(null);
           setStatus("pending");
           setRemark("");
           setValue("");
+          const empty: Record<string, string> = {};
+          if (isMulti) {
+            for (const f of routine.inputFields) empty[f.key] = "";
+          }
+          setFieldValues(empty);
           setSavedImageUrl(null);
         }
 
-        // Reset pending image state whenever we load a new date's log.
         setPendingImage(null);
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
@@ -152,7 +174,6 @@ export function RoutineLogPanel({
     setPendingImage(file);
     setPreviewUrl(URL.createObjectURL(file));
     setRemoveImage(false);
-    // Reset the input so picking the same file again fires onChange.
     event.target.value = "";
   }
 
@@ -173,13 +194,17 @@ export function RoutineLogPanel({
     setMessage("");
     try {
       setDeleting(true);
-      // Delete the stored image first (best-effort).
       if (savedImageUrl) await deleteRoutineLogImage(savedImageUrl);
       await deleteRoutineLog(userId, existingLogId);
       setExistingLogId(null);
       setStatus("pending");
       setRemark("");
       setValue("");
+      const empty: Record<string, string> = {};
+      if (isMulti) {
+        for (const f of routine.inputFields) empty[f.key] = "";
+      }
+      setFieldValues(empty);
       setSavedImageUrl(null);
       setPendingImage(null);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -204,15 +229,35 @@ export function RoutineLogPanel({
     setError("");
     setMessage("");
 
-    let numericValue: number | null = null;
+    // Validate + collect values
+    let legacyNumericValue: number | null = null;
+    const multiValues: Record<string, number> = {};
 
-    if (routine.inputType === "number") {
+    if (isMulti) {
+      for (const field of routine.inputFields) {
+        const raw = (fieldValues[field.key] ?? "").trim();
+        if (!raw) {
+          setError(
+            `Please enter a value for "${field.label || field.key}".`,
+          );
+          return;
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n)) {
+          setError(
+            `"${field.label || field.key}" must be a valid number.`,
+          );
+          return;
+        }
+        multiValues[field.key] = n;
+      }
+    } else if (isLegacyNumber) {
       if (!value.trim()) {
         setError("Please enter a value.");
         return;
       }
-      numericValue = Number(value);
-      if (!Number.isFinite(numericValue)) {
+      legacyNumericValue = Number(value);
+      if (!Number.isFinite(legacyNumericValue)) {
         setError("Please enter a valid number.");
         return;
       }
@@ -221,10 +266,6 @@ export function RoutineLogPanel({
     try {
       setSaving(true);
 
-      // Resolve final imageUrl:
-      // 1. If a new file was picked, upload it (and delete the old one).
-      // 2. If the user removed the saved image, delete it from Storage.
-      // 3. Otherwise keep whatever was already saved.
       let finalImageUrl: string | null = savedImageUrl;
 
       if (pendingImage) {
@@ -235,7 +276,6 @@ export function RoutineLogPanel({
           toDayTimestamp(selectedDateObject),
           pendingImage,
         );
-        // Clear pending state now that it's uploaded.
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPendingImage(null);
         setPreviewUrl(null);
@@ -250,7 +290,8 @@ export function RoutineLogPanel({
         date: toDayTimestamp(selectedDateObject),
         status,
         remark,
-        value: numericValue,
+        value: legacyNumericValue,
+        values: multiValues,
         imageUrl: finalImageUrl,
       });
 
@@ -258,7 +299,11 @@ export function RoutineLogPanel({
 
       window.dispatchEvent(
         new CustomEvent("routine-log-saved", {
-          detail: { routineId: routine.id, value: numericValue },
+          detail: {
+            routineId: routine.id,
+            value: legacyNumericValue,
+            values: multiValues,
+          },
         }),
       );
 
@@ -280,7 +325,6 @@ export function RoutineLogPanel({
     );
   }
 
-  // The image to preview: prefer the local pending file, else the saved URL.
   const displayImageUrl = previewUrl ?? (removeImage ? null : savedImageUrl);
   const hasPendingChanges = pendingImage !== null || removeImage;
 
@@ -295,7 +339,6 @@ export function RoutineLogPanel({
             </span>
           )}
         </h3>
-
         <p className="mt-1 text-sm text-[var(--text-muted)]">
           {routine.deletedAt
             ? "This routine has been deleted, but you can still view and edit its log."
@@ -315,18 +358,16 @@ export function RoutineLogPanel({
         </div>
       )}
 
-      {/* Selected Date */}
+      {/* Date */}
       <div>
         <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
           Date
         </label>
-
         <div className="relative">
           <CalendarDays
             size={18}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]"
           />
-
           <input
             type="date"
             value={selectedDate}
@@ -340,7 +381,6 @@ export function RoutineLogPanel({
             className="w-full rounded-xl border border-[var(--border)] px-4 py-3 pl-10 text-sm outline-none focus:border-[var(--border-strong)]"
           />
         </div>
-
         <p className="mt-1 text-xs text-[var(--text-faint)]">
           Select the date for which you want to record this routine.
         </p>
@@ -351,7 +391,6 @@ export function RoutineLogPanel({
         <label className="mb-2 block text-sm font-medium text-[var(--text-secondary)]">
           Status
         </label>
-
         <div className="grid gap-3 sm:grid-cols-3">
           <button
             type="button"
@@ -393,17 +432,60 @@ export function RoutineLogPanel({
         </div>
       </div>
 
-      {/* Numeric value */}
-      {routine.inputType === "number" && (
+      {/* ── Multi-field inputs ── */}
+      {isMulti && (
+        <div className="mt-5 space-y-3">
+          <label className="block text-sm font-medium text-[var(--text-secondary)]">
+            Values
+          </label>
+          {routine.inputFields.map((field) => (
+            <div key={field.key}>
+              <label className="mb-1 block text-xs text-[var(--text-faint)]">
+                {field.label || field.key}
+                {field.unit && (
+                  <span className="ml-1 text-[var(--text-faint)]">
+                    ({field.unit})
+                  </span>
+                )}
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={fieldValues[field.key] ?? ""}
+                  onChange={(e) =>
+                    setFieldValues((prev) => ({
+                      ...prev,
+                      [field.key]: e.target.value,
+                    }))
+                  }
+                  placeholder={
+                    field.unit
+                      ? `Enter value in ${field.unit}`
+                      : "Enter value"
+                  }
+                  className="w-full rounded-xl border border-[var(--border)] px-4 py-3 pr-16 text-sm outline-none focus:border-[var(--border-strong)]"
+                />
+                {field.unit && (
+                  <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[var(--text-faint)]">
+                    {field.unit}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Legacy single-value input */}
+      {isLegacyNumber && (
         <div className="mt-5">
           <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
             Value{routine.unit && ` (${routine.unit})`}
           </label>
-
           <input
             type="number"
             value={value}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(e) => setValue(e.target.value)}
             placeholder={
               routine.unit ? `Enter value in ${routine.unit}` : "Enter value"
             }
@@ -417,10 +499,9 @@ export function RoutineLogPanel({
         <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
           Remarks
         </label>
-
         <textarea
           value={remark}
-          onChange={(event) => setRemark(event.target.value)}
+          onChange={(e) => setRemark(e.target.value)}
           placeholder="Add any remarks..."
           rows={3}
           className="w-full resize-none rounded-xl border border-[var(--border)] px-4 py-3 text-sm outline-none focus:border-[var(--border-strong)]"
@@ -441,16 +522,12 @@ export function RoutineLogPanel({
               className="max-h-64 w-full cursor-zoom-in object-contain"
               onClick={() => setLightboxSrc(displayImageUrl)}
             />
-
-            {/* Badge when a new file is pending */}
             {pendingImage && (
               <span className="absolute left-2 top-2 rounded-full bg-[var(--warning)] px-2 py-0.5 text-xs font-semibold text-white">
                 Not saved yet
               </span>
             )}
-
             <div className="absolute right-2 top-2 flex gap-2">
-              {/* Replace */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -459,8 +536,6 @@ export function RoutineLogPanel({
               >
                 <ImagePlus size={16} className="text-[var(--text-secondary)]" />
               </button>
-
-              {/* Remove */}
               <button
                 type="button"
                 onClick={pendingImage ? handleClearPending : handleRemoveSaved}

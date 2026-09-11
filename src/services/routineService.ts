@@ -11,7 +11,7 @@ import {
 } from "firebase/firestore";
 
 import { db } from "../lib/firebase";
-import type { Routine, RoutineSchedule } from "../types/routine";
+import type { Routine, RoutineInputField, RoutineSchedule } from "../types/routine";
 
 function routinesCollection(userId: string) {
   return collection(db, "users", userId, "routines");
@@ -24,7 +24,10 @@ export interface RoutineInput {
   schedule: RoutineSchedule;
   alternateDay: boolean;
   inputType: Routine["inputType"];
+  /** Legacy single-unit label. Empty string for "multi"/"none". */
   unit: string;
+  /** Named numeric fields. Empty array for "none" and legacy "number". */
+  inputFields: RoutineInputField[];
   startDate: Timestamp;
   endDate: Timestamp | null;
   active: boolean;
@@ -42,6 +45,7 @@ export async function createRoutine(
     alternateDay: routine.alternateDay,
     inputType: routine.inputType,
     unit: routine.unit.trim(),
+    inputFields: routine.inputFields,
     startDate: routine.startDate,
     endDate: routine.endDate,
     active: routine.active,
@@ -75,10 +79,15 @@ export async function getRoutines(
 
   const snapshot = await getDocs(routinesQuery);
 
-  const routines = snapshot.docs.map((routineDoc) => ({
-    id: routineDoc.id,
-    ...routineDoc.data(),
-  })) as Routine[];
+  const routines = snapshot.docs.map((routineDoc) => {
+    const data = routineDoc.data();
+    // Backfill inputFields for legacy docs that pre-date this field.
+    return {
+      inputFields: [] as Routine["inputFields"],
+      ...data,
+      id: routineDoc.id,
+    } as unknown as Routine;
+  });
 
   if (options?.includeDeleted) {
     return routines;

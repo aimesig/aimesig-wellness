@@ -452,6 +452,25 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
   const [status, setStatus] = useState<RoutineStatus>(log?.status ?? "pending");
   const [value, setValue] = useState(log?.value != null ? String(log.value) : "");
   const [remark, setRemark] = useState(log?.remark ?? "");
+
+  const isMulti =
+    routine.inputType === "multi" &&
+    Array.isArray(routine.inputFields) &&
+    routine.inputFields.length > 0;
+
+  function initFieldValues(l: typeof log): Record<string, string> {
+    const init: Record<string, string> = {};
+    for (const f of routine.inputFields ?? []) {
+      const v = l?.values?.[f.key];
+      init[f.key] = v !== undefined ? String(v) : "";
+    }
+    return init;
+  }
+
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>(
+    () => initFieldValues(log),
+  );
+
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -475,6 +494,7 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
     setStatus(log?.status ?? "pending");
     setValue(log?.value != null ? String(log.value) : "");
     setRemark(log?.remark ?? "");
+    setFieldValues(initFieldValues(log));
     setSavedImageUrl(log?.imageUrl ?? null);
     setPendingImage(null);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -507,13 +527,29 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
     setStatus(next);
     setError("");
     if (routine.inputType === "number" && next === "yes" && !value.trim()) return;
+    if (isMulti && next === "yes") {
+      const allFilled = (routine.inputFields ?? []).every(
+        (f) => (fieldValues[f.key] ?? "").trim() !== "",
+      );
+      if (!allFilled) return;
+    }
     await save(next, value, remark);
   }
 
   async function save(s: RoutineStatus, v: string, r: string) {
     setError("");
     let numVal: number | null = null;
-    if (routine.inputType === "number") {
+    const multiValues: Record<string, number> = {};
+
+    if (isMulti) {
+      for (const field of routine.inputFields ?? []) {
+        const raw = (fieldValues[field.key] ?? "").trim();
+        if (!raw) { setError(`Enter a value for "${field.label || field.key}".`); return; }
+        const n = Number(raw);
+        if (!Number.isFinite(n)) { setError(`"${field.label || field.key}" must be a valid number.`); return; }
+        multiValues[field.key] = n;
+      }
+    } else if (routine.inputType === "number") {
       if (!v.trim()) { setError("Enter a value to save."); return; }
       numVal = Number(v);
       if (!Number.isFinite(numVal)) { setError("Enter a valid number."); return; }
@@ -547,6 +583,7 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
         status: s,
         remark: r,
         value: numVal,
+        values: multiValues,
         imageUrl: finalImageUrl,
       });
       const pseudo: RoutineLog = {
@@ -556,6 +593,7 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
         status: s,
         remark: r,
         value: numVal,
+        values: multiValues,
         imageUrl: finalImageUrl,
         createdAt: log?.createdAt ?? todayTs,
         updatedAt: todayTs,
@@ -623,6 +661,30 @@ function RoutineCard({ routine, log, userId, date, onSaved }: RoutineCardProps) 
         </button>
       </div>
 
+      {/* Multi-field inputs */}
+      {isMulti && (routine.inputFields ?? []).map((field) => (
+        <div key={field.key} className="mt-2">
+          <div className="relative">
+            <input
+              type="number"
+              value={fieldValues[field.key] ?? ""}
+              onChange={(e) =>
+                setFieldValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+              }
+              onBlur={() => { if (status !== "pending") void save(status, value, remark); }}
+              placeholder={field.unit ? `${field.label || field.key} (${field.unit})` : (field.label || field.key)}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 pr-14 text-sm outline-none focus:border-[var(--success)] placeholder:text-[var(--text-faint)]"
+            />
+            {field.unit && (
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-faint)]">
+                {field.unit}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Legacy single-value input */}
       {routine.inputType === "number" && (
         <div className="mt-2">
           <input

@@ -15,6 +15,7 @@ import { getRoutineLogsForDate } from "../../services/routineLogService";
 import { getRoutines } from "../../services/routineService";
 import { getRoutinesForDate } from "../../utils/recurrence";
 import { RoutineLogPanel } from "../routines/RoutineLogPanel";
+import { ImageLightbox } from "../ui/ImageLightbox";
 import type { Routine, RoutineLog } from "../../types/routine";
 
 interface CalendarViewProps {
@@ -73,6 +74,7 @@ function placeholderRoutine(log: RoutineLog): Routine {
     alternateDay: false,
     inputType: log.value != null ? "number" : "none",
     unit: "",
+    inputFields: [],
     startDate: log.date,
     endDate: null,
     active: false,
@@ -212,7 +214,38 @@ export function CalendarView({ userId }: CalendarViewProps) {
   while (cells.length % 7 !== 0) cells.push(null);
 
   const todayKey = toDateKey(today);
+  const selectedDate = selectedDay ? dateFromKey(selectedDay) : null;
   const selectedProgress = selectedDay ? progressMap.get(selectedDay) : undefined;
+
+  /**
+   * Smart progress derived from the loaded day items — always up to date
+   * even for today (before Firestore logs are written) and for days where
+   * the user has routines scheduled but hasn't logged yet.
+   *
+   * Priority: dayItems (live) > progressMap (Firestore snapshot)
+   */
+  const smartProgress = (() => {
+    if (!selectedDay || !selectedDate) return null;
+    const isFuture = selectedDay > todayKey;
+    if (isFuture) return null;
+
+    // While items are still loading, fall back to Firestore snapshot so the
+    // bar doesn't flicker away.
+    if (dayLoading || dayItems === null) {
+      return selectedProgress
+        ? { total: selectedProgress.totalCount, completed: selectedProgress.completedCount, pending: 0, isLive: false }
+        : null;
+    }
+
+    const isToday = selectedDay === todayKey;
+    const total = dayItems.length;
+    if (total === 0) return { total: 0, completed: 0, pending: 0, isLive: false };
+
+    const completed = dayItems.filter((i) => i.log?.status === "yes").length;
+    const pending = dayItems.filter((i) => !i.log || i.log.status === "pending").length;
+
+    return { total, completed, pending, isLive: isToday };
+  })();
 
   // Year heatmap (last 53 weeks)
   const heatmapWeeks: { key: string; date: Date }[][] = [];
@@ -228,8 +261,6 @@ export function CalendarView({ userId }: CalendarViewProps) {
     }
     heatmapWeeks.push(week);
   }
-
-  const selectedDate = selectedDay ? dateFromKey(selectedDay) : null;
 
   return (
     <div className="space-y-6">
@@ -319,17 +350,10 @@ export function CalendarView({ userId }: CalendarViewProps) {
             {selectedDate.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
           </h3>
 
-          {selectedProgress && (
-            <div className="mb-4 mt-2">
-              <div className="flex items-center gap-3 mb-1">
-                <div className="flex-1 rounded-full bg-[var(--bg-elevated)] h-2">
-                  <div className="h-2 rounded-full transition-all" style={{ width: `${selectedProgress.percent}%`, backgroundColor: getProgressColorStyle(selectedProgress.percent) }} />
-                </div>
-                <span className="text-sm font-bold text-[var(--accent-pink)]">{selectedProgress.percent}%</span>
-              </div>
-              <p className="text-xs text-[var(--text-secondary)]">{selectedProgress.completedCount} of {selectedProgress.totalCount} routines completed</p>
-            </div>
-          )}
+          <SmartProgressBar
+            progress={smartProgress}
+            isLoading={dayLoading && smartProgress === null}
+          />
 
           {dayLoading ? (
             <div className="flex justify-center py-6">
@@ -400,10 +424,107 @@ export function CalendarView({ userId }: CalendarViewProps) {
   );
 }
 
+// ─── Smart progress bar ──────────────────────────────────────────────────────
+
+interface SmartProgressBarProps {
+  progress: { total: number; completed: number; pending: number; isLive: boolean } | null;
+  isLoading: boolean;
+}
+
+function SmartProgressBar({ progress, isLoading }: SmartProgressBarProps) {
+  if (isLoading) {
+    // Skeleton placeholder while day data loads
+    return (
+      <div className="mb-4 mt-2 animate-pulse">
+        <div className="h-2 rounded-full bg-[var(--border)] w-full mb-2" />
+        <div className="h-3 rounded bg-[var(--border)] w-32" />
+      </div>
+    );
+  }
+
+  if (!progress) return null;
+
+  const { total, completed, pending, isLive } = progress;
+
+  // No routines scheduled for this day
+  if (total === 0) {
+    return (
+      <p className="text-xs text-[var(--text-muted)] mb-4 mt-2 italic">
+        No routines scheduled for this day.
+      </p>
+    );
+  }
+
+  const percent = Math.round((completed / total) * 100);
+  const missed = total - completed - pending;
+
+  // Decide label
+  let label: string;
+  if (isLive) {
+    if (completed === total) {
+      label = "All done for today 🎉";
+    } else if (completed === 0 && pending === total) {
+      label = `${total} routine${total > 1 ? "s" : ""} to go today`;
+    } else {
+      const parts: string[] = [];
+      if (completed > 0) parts.push(`${completed} done`);
+      if (pending > 0) parts.push(`${pending} pending`);
+      if (missed > 0) parts.push(`${missed} missed`);
+      label = parts.join(" · ");
+    }
+  } else {
+    // Past day
+    if (completed === total) {
+      label = `All ${total} routines completed`;
+    } else if (completed === 0) {
+      label = total > 0 ? `Not logged — ${total} routine${total > 1 ? "s" : ""} were scheduled` : "Not logged";
+    } else {
+      label = `${completed} of ${total} routines completed`;
+    }
+  }
+
+  // Segmented bar: completed | pending | missed
+  const completedPct = (completed / total) * 100;
+  const pendingPct   = (pending   / total) * 100;
+
+  return (
+    <div className="mb-4 mt-2">
+      <div className="flex items-center gap-3 mb-1.5">
+        {/* Segmented progress bar */}
+        <div className="flex-1 h-2 rounded-full bg-[var(--bg)] overflow-hidden flex">
+          {completed > 0 && (
+            <div
+              className="h-full transition-all duration-500"
+              style={{ width: `${completedPct}%`, backgroundColor: getProgressColorStyle(percent) }}
+            />
+          )}
+          {pending > 0 && (
+            <div
+              className="h-full transition-all duration-500"
+              style={{ width: `${pendingPct}%`, backgroundColor: "var(--border-strong)", opacity: 0.5 }}
+            />
+          )}
+          {/* missed fills the rest implicitly (bg-[var(--bg)]) */}
+        </div>
+        <span className="text-sm font-bold text-[var(--accent-pink)] tabular-nums">
+          {percent}%
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+        {isLive && (
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--accent-pink)] animate-pulse shrink-0" />
+        )}
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Day routine row ────────────────────────────────────────────────────────
 
 function DayRoutineRow({ routine, log, isDeleted, onEdit }: { routine: Routine; log: RoutineLog | null; isDeleted: boolean; onEdit: () => void }) {
   const status = log?.status ?? "pending";
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const statusStyle =
     status === "yes" ? { dot: "bg-[var(--success)]", label: "text-[var(--success)]", text: "Done" } :
@@ -417,6 +538,22 @@ function DayRoutineRow({ routine, log, isDeleted, onEdit }: { routine: Routine; 
   return (
     <div className={`flex items-start gap-3 rounded-xl bg-[var(--bg)] px-3 py-3 ${isDeleted ? "opacity-70" : ""}`}>
       <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${statusStyle.dot}`} />
+
+      {log?.imageUrl && (
+        <button
+          type="button"
+          onClick={() => setLightboxOpen(true)}
+          className="shrink-0 overflow-hidden rounded-lg border border-[var(--border)]"
+          title="View attached image"
+        >
+          <img
+            src={log.imageUrl}
+            alt={`${displayTitle} attachment`}
+            className="h-12 w-12 cursor-zoom-in object-cover"
+          />
+        </button>
+      )}
+
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-[var(--text-secondary)] truncate">{displayTitle}</span>
@@ -425,6 +562,20 @@ function DayRoutineRow({ routine, log, isDeleted, onEdit }: { routine: Routine; 
               {log.value}{routine.unit ? ` ${routine.unit}` : ""}
             </span>
           )}
+          {routine.inputType === "multi" &&
+            routine.inputFields?.length > 0 &&
+            log?.values &&
+            Object.keys(log.values).length > 0 &&
+            routine.inputFields.map((f) =>
+              log.values[f.key] !== undefined ? (
+                <span
+                  key={f.key}
+                  className="shrink-0 rounded-full bg-[var(--accent-yellow-soft)] px-2 py-0.5 text-xs font-bold text-[var(--accent-pink)]"
+                >
+                  {f.label || f.key}: {log.values[f.key]}{f.unit ? ` ${f.unit}` : ""}
+                </span>
+              ) : null,
+            )}
         </div>
         {log?.remark ? (
           <p className="mt-0.5 text-xs text-[var(--text-secondary)] truncate">{log.remark}</p>
@@ -441,6 +592,14 @@ function DayRoutineRow({ routine, log, isDeleted, onEdit }: { routine: Routine; 
           <Pencil size={14} />
         </button>
       </div>
+
+      {log?.imageUrl && lightboxOpen && (
+        <ImageLightbox
+          src={log.imageUrl}
+          alt={`${displayTitle} attachment`}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
     </div>
   );
 }
