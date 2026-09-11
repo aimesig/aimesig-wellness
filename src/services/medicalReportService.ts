@@ -4,6 +4,7 @@ import {
   getDocs,
   deleteDoc,
   doc,
+  updateDoc,
   query,
   orderBy,
   serverTimestamp,
@@ -25,7 +26,7 @@ export interface MedicalAttachment {
   name: string;
   url: string;
   storagePath: string;
-  type: string; // mime type
+  type: string;
   size: number;
 }
 
@@ -33,13 +34,27 @@ export interface MedicalReport {
   id?: string;
   title: string;
   category: ReportCategory;
-  date: string; // ISO date string YYYY-MM-DD
+  date: string;
   notes: string;
   attachments: MedicalAttachment[];
   createdAt?: Timestamp;
+  updatedAt?: Timestamp;
 }
 
 const storage = getStorage(app);
+
+// ── Helpers ───────────────────────────────────────────────
+
+/** Generates a collision-resistant storage path. */
+function storagePath(userId: string, file: File): string {
+  const ts = Date.now();
+  const rand = Math.random().toString(36).slice(2, 8);
+  // Sanitise the filename so it is safe in a Storage path
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `medicalReports/${userId}/${ts}_${rand}_${safeName}`;
+}
+
+// ── CRUD ──────────────────────────────────────────────────
 
 export async function getMedicalReports(userId: string): Promise<MedicalReport[]> {
   try {
@@ -50,7 +65,7 @@ export async function getMedicalReports(userId: string): Promise<MedicalReport[]
     const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() } as MedicalReport));
   } catch (err) {
-    // If the index isn't ready yet, fall back to unordered fetch and sort client-side
+    // Index not yet built — fall back to a client-side sort
     console.warn("getMedicalReports: orderBy failed, falling back to client-side sort", err);
     const snap = await getDocs(collection(db, "users", userId, "medicalReports"));
     const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as MedicalReport));
@@ -60,17 +75,50 @@ export async function getMedicalReports(userId: string): Promise<MedicalReport[]
 
 export async function saveMedicalReport(
   userId: string,
-  report: Omit<MedicalReport, "id" | "createdAt">
+  report: Omit<MedicalReport, "id" | "createdAt" | "updatedAt">
 ): Promise<string> {
-  const ref2 = await addDoc(collection(db, "users", userId, "medicalReports"), {
+  const docRef = await addDoc(collection(db, "users", userId, "medicalReports"), {
     title: report.title,
     category: report.category,
     date: report.date,
     notes: report.notes ?? "",
     attachments: report.attachments ?? [],
     createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
-  return ref2.id;
+  return docRef.id;
+}
+
+/**
+ * Update an existing medical report.
+ *
+ * Pass the **complete final** attachment list in `report.attachments`
+ * (existing ones you kept + newly uploaded ones).
+ * Pass `removedAttachments` for anything the user deleted — this function
+ * will clean up the corresponding Storage objects.
+ */
+export async function updateMedicalReport(
+  userId: string,
+  reportId: string,
+  report: Omit<MedicalReport, "id" | "createdAt" | "updatedAt">,
+  removedAttachments: MedicalAttachment[] = []
+): Promise<void> {
+  // Write to Firestore first so the user sees the update immediately,
+  // then clean up orphaned Storage files in the background.
+  const docRef = doc(db, "users", userId, "medicalReports", reportId);
+  await updateDoc(docRef, {
+    title: report.title,
+    category: report.category,
+    date: report.date,
+    notes: report.notes ?? "",
+    attachments: report.attachments ?? [],
+    updatedAt: serverTimestamp(),
+  });
+
+  // Best-effort Storage cleanup — failures are non-critical
+  await Promise.allSettled(
+    removedAttachments.map((att) => deleteObject(ref(storage, att.storagePath)))
+  );
 }
 
 export async function deleteMedicalReport(
@@ -78,17 +126,15 @@ export async function deleteMedicalReport(
   reportId: string,
   attachments: MedicalAttachment[]
 ): Promise<void> {
-  // Delete all attachments from storage
-  for (const att of attachments) {
-    try {
-      const storageRef = ref(storage, att.storagePath);
-      await deleteObject(storageRef);
-    } catch {
-      // non-critical — file may already be deleted
-    }
-  }
+  // Delete Firestore document first, then clean up Storage
   await deleteDoc(doc(db, "users", userId, "medicalReports", reportId));
+
+  await Promise.allSettled(
+    attachments.map((att) => deleteObject(ref(storage, att.storagePath)))
+  );
 }
+
+// ── Upload ────────────────────────────────────────────────
 
 export function uploadMedicalFile(
   userId: string,
@@ -96,14 +142,17 @@ export function uploadMedicalFile(
   onProgress: (pct: number) => void
 ): Promise<MedicalAttachment> {
   return new Promise((resolve, reject) => {
-    const storagePath = `medicalReports/${userId}/${Date.now()}_${file.name}`;
-    const storageRef = ref(storage, storagePath);
+    const path = storagePath(userId, file);
+    const storageRef = ref(storage, path);
     const task = uploadBytesResumable(storageRef, file);
 
     task.on(
       "state_changed",
       (snap) => {
-        onProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
+        const pct = snap.totalBytes > 0
+          ? Math.round((snap.bytesTransferred / snap.totalBytes) * 100)
+          : 0;
+        onProgress(pct);
       },
       (err) => {
         console.error("uploadMedicalFile failed:", err.code, err.message);
@@ -115,8 +164,8 @@ export function uploadMedicalFile(
           resolve({
             name: file.name,
             url,
-            storagePath,
-            type: file.type,
+            storagePath: path,
+            type: file.type || "application/octet-stream",
             size: file.size,
           });
         } catch (err) {

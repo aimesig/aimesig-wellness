@@ -43,6 +43,7 @@ import { getWeightRoutine, getWeightEntries } from "../../services/weightService
 import {
   getMedicalReports,
   saveMedicalReport,
+  updateMedicalReport,
   deleteMedicalReport,
   uploadMedicalFile,
   type MedicalReport,
@@ -95,11 +96,11 @@ const HEALTH_CONDITIONS_LIST = [
 type ProfileTab = "profile" | "medical";
 
 const CATEGORY_META: Record<ReportCategory, { label: string; emoji: string; color: string }> = {
-  checkup: { label: "Health Checkup", emoji: "🩺", color: "var(--accent-blue)" },
-  issue: { label: "Health Issue", emoji: "🤒", color: "var(--danger)" },
-  lab: { label: "Lab Report", emoji: "🧪", color: "var(--accent-yellow)" },
-  prescription: { label: "Prescription", emoji: "💊", color: "var(--success)" },
-  other: { label: "Other", emoji: "📋", color: "var(--text-secondary)" },
+  checkup:      { label: "Health Checkup", emoji: "🩺", color: "var(--accent-blue)" },
+  issue:        { label: "Health Issue",   emoji: "🤒", color: "var(--danger)" },
+  lab:          { label: "Lab Report",     emoji: "🧪", color: "var(--accent-yellow)" },
+  prescription: { label: "Prescription",   emoji: "💊", color: "var(--success)" },
+  other:        { label: "Other",          emoji: "📋", color: "var(--text-secondary)" },
 };
 
 function formatBytes(bytes: number) {
@@ -119,23 +120,38 @@ interface MedicalReportTabProps {
 }
 
 function MedicalReportTab({ userId }: MedicalReportTabProps) {
-  const [reports, setReports] = useState<MedicalReport[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [reports, setReports]           = useState<MedicalReport[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [deletingId, setDeletingId]     = useState<string | null>(null);
+  const [expandedId, setExpandedId]     = useState<string | null>(null);
+  const [lightboxUrl, setLightboxUrl]   = useState<string | null>(null);
 
-  // Form state
-  const [title, setTitle] = useState("");
+  // Form mode: null = closed, "new" = adding, "edit" = editing
+  const [formMode, setFormMode]               = useState<"new" | "edit" | null>(null);
+  const [editingReportId, setEditingReportId] = useState<string | null>(null);
+
+  // Form fields
+  const [title, setTitle]       = useState("");
   const [category, setCategory] = useState<ReportCategory>("checkup");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [notes, setNotes] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
-  const [saving, setSaving] = useState(false);
+  const [date, setDate]         = useState(new Date().toISOString().split("T")[0]);
+  const [notes, setNotes]       = useState("");
+
+  // Attachment state
+  // attachments already saved to Storage (shown in edit mode)
+  const [existingAttachments, setExistingAttachments] = useState<MedicalAttachment[]>([]);
+  // attachments removed during this edit session (to be deleted from Storage on save)
+  const [removedAttachments, setRemovedAttachments]   = useState<MedicalAttachment[]>([]);
+  // newly picked files that haven't been uploaded yet
+  const [selectedFiles, setSelectedFiles]             = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress]           = useState<Record<string, number>>({});
+
+  const [saving, setSaving]       = useState(false);
   const [formError, setFormError] = useState("");
+
+  // Keep a single file input mounted at all times so the ref is always valid
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Data loading ────────────────────────────────────────
 
   useEffect(() => {
     let cancelled = false;
@@ -154,58 +170,137 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
     return () => { cancelled = true; };
   }, [userId]);
 
-  function resetForm() {
+  // ── Form helpers ────────────────────────────────────────
+
+  /**
+   * Reset all form fields to blank defaults.
+   * Does NOT touch formMode or editingReportId — callers manage those.
+   */
+  function clearFormFields() {
     setTitle("");
     setCategory("checkup");
     setDate(new Date().toISOString().split("T")[0]);
     setNotes("");
+    setExistingAttachments([]);
+    setRemovedAttachments([]);
     setSelectedFiles([]);
     setUploadProgress({});
     setFormError("");
+    // Reset the hidden file input so the same file can be re-selected later
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  function openNewForm() {
+    clearFormFields();
+    setEditingReportId(null);
+    setFormMode("new");
+  }
+
+  function openEditForm(report: MedicalReport) {
+    // Populate fields first, then set the mode so the form renders with data
+    setTitle(report.title);
+    setCategory(report.category);
+    setDate(report.date);
+    setNotes(report.notes);
+    setExistingAttachments(report.attachments ?? []);
+    setRemovedAttachments([]);
+    setSelectedFiles([]);
+    setUploadProgress({});
+    setFormError("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    setEditingReportId(report.id ?? null);
+    setExpandedId(null);
+    setFormMode("edit");
+  }
+
+  function closeForm() {
+    clearFormFields();
+    setEditingReportId(null);
+    setFormMode(null);
+  }
+
+  // ── File picking ────────────────────────────────────────
+
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!e.target.files) return;
-    const newFiles = Array.from(e.target.files);
-    setSelectedFiles((prev) => [...prev, ...newFiles]);
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const picked = Array.from(files);
+    setSelectedFiles((prev) => [...prev, ...picked]);
+    // Reset so the same file can be re-selected if the user removes and re-adds it
     e.target.value = "";
   }
 
   function removeSelectedFile(idx: number) {
     setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
+    setUploadProgress((prev) => {
+      // Clean up any progress entry keyed by the removed file's name
+      const next = { ...prev };
+      // We don't have the file name here, but the progress map will be
+      // reset on next save anyway — nothing to do.
+      return next;
+    });
   }
+
+  function removeExistingAttachment(att: MedicalAttachment) {
+    setExistingAttachments((prev) => prev.filter((a) => a.storagePath !== att.storagePath));
+    setRemovedAttachments((prev) => [...prev, att]);
+  }
+
+  // ── Save ────────────────────────────────────────────────
 
   async function handleSave() {
     if (!title.trim()) { setFormError("Please enter a title."); return; }
-    if (!date) { setFormError("Please select a date."); return; }
+    if (!date)         { setFormError("Please select a date."); return; }
+
+    // Snapshot mutable state before any awaits so React state changes
+    // during the async operation don't silently mutate what we're saving.
+    const filesToUpload      = [...selectedFiles];
+    const attachmentsToKeep  = [...existingAttachments];
+    const attachmentsToRemove = [...removedAttachments];
+    const reportIdToEdit     = editingReportId; // capture before any state reset
+    const currentMode        = formMode;
+
     setSaving(true);
     setFormError("");
+
     try {
-      // Step 1: upload attachments
-      const attachments: MedicalAttachment[] = [];
-      for (const file of selectedFiles) {
+      // Upload newly selected files sequentially
+      const newAttachments: MedicalAttachment[] = [];
+      for (const file of filesToUpload) {
         const att = await uploadMedicalFile(userId, file, (pct) => {
           setUploadProgress((prev) => ({ ...prev, [file.name]: pct }));
         });
-        attachments.push(att);
+        newAttachments.push(att);
       }
 
-      // Step 2: save to Firestore
-      const savedId = await saveMedicalReport(userId, { title: title.trim(), category, date, notes, attachments });
+      const finalAttachments = [...attachmentsToKeep, ...newAttachments];
+      const reportPayload: Omit<MedicalReport, "id" | "createdAt" | "updatedAt"> = {
+        title:       title.trim(),
+        category,
+        date,
+        notes,
+        attachments: finalAttachments,
+      };
 
-      // Step 3: reload list — done separately so a slow index doesn't fail the save
-      resetForm();
-      setShowForm(false);
-      try {
-        const updated = await getMedicalReports(userId);
-        setReports(updated);
-      } catch {
-        // Index may still be building — add the new report to local state directly
-        setReports((prev) => [
-          { id: savedId, title: title.trim(), category, date, notes, attachments },
-          ...prev,
-        ]);
+      if (currentMode === "edit" && reportIdToEdit) {
+        await updateMedicalReport(userId, reportIdToEdit, reportPayload, attachmentsToRemove);
+        // Optimistically update local state
+        setReports((prev) =>
+          prev.map((r) => (r.id === reportIdToEdit ? { ...r, ...reportPayload } : r))
+        );
+      } else {
+        const savedId = await saveMedicalReport(userId, reportPayload);
+        // Re-fetch to get the server timestamp; fall back to local insert on error
+        try {
+          const updated = await getMedicalReports(userId);
+          setReports(updated);
+        } catch {
+          setReports((prev) => [{ id: savedId, ...reportPayload }, ...prev]);
+        }
       }
+
+      closeForm();
     } catch (err) {
       console.error("handleSave failed:", err);
       setFormError("Failed to save. Please try again.");
@@ -213,6 +308,8 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
       setSaving(false);
     }
   }
+
+  // ── Delete ──────────────────────────────────────────────
 
   async function handleDelete(report: MedicalReport) {
     if (!report.id) return;
@@ -228,6 +325,8 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
     }
   }
 
+  // ── Render ──────────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="flex justify-center py-16">
@@ -236,8 +335,24 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
     );
   }
 
+  const showForm = formMode !== null;
+
   return (
     <div className="space-y-5">
+      {/*
+       * The file input is always mounted outside the conditional form block.
+       * This ensures fileInputRef.current is never null when the upload
+       * button is clicked, regardless of how the form toggled since last render.
+       */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+
       {/* Header row */}
       <div className="flex items-center justify-between">
         <div>
@@ -249,7 +364,7 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
         {!showForm && (
           <button
             type="button"
-            onClick={() => { resetForm(); setShowForm(true); }}
+            onClick={openNewForm}
             className="flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition shadow-sm"
           >
             <Plus size={15} />
@@ -258,44 +373,53 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
         )}
       </div>
 
-      {/* Add Report Form */}
+      {/* Add / Edit Form */}
       {showForm && (
         <div className="rounded-3xl border border-[var(--accent-pink)] bg-[var(--bg-elevated)] p-5 shadow-sm space-y-4">
+          {/* Form header */}
           <div className="flex items-center justify-between">
-            <h4 className="font-bold text-[var(--text-primary)]">New Medical Report</h4>
+            <h4 className="font-bold text-[var(--text-primary)]">
+              {formMode === "edit" ? "Edit Medical Report" : "New Medical Report"}
+            </h4>
             <button
               type="button"
-              onClick={() => { setShowForm(false); resetForm(); }}
+              onClick={closeForm}
               className="text-[var(--text-faint)] hover:text-[var(--text-secondary)] transition"
             >
               <X size={18} />
             </button>
           </div>
 
-          {/* Category */}
+          {/* Category picker */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Category</label>
+            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
+              Category
+            </label>
             <div className="flex flex-wrap gap-2">
-              {(Object.entries(CATEGORY_META) as [ReportCategory, typeof CATEGORY_META[ReportCategory]][]).map(([val, meta]) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setCategory(val)}
-                  className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
-                    category === val
-                      ? "border-[var(--accent-pink)] bg-[var(--bg-elevated)] text-[var(--accent-pink)]"
-                      : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-card)]"
-                  }`}
-                >
-                  <span>{meta.emoji}</span> {meta.label}
-                </button>
-              ))}
+              {(Object.entries(CATEGORY_META) as [ReportCategory, typeof CATEGORY_META[ReportCategory]][]).map(
+                ([val, meta]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setCategory(val)}
+                    className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                      category === val
+                        ? "border-[var(--accent-pink)] bg-[var(--bg-elevated)] text-[var(--accent-pink)]"
+                        : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-card)]"
+                    }`}
+                  >
+                    <span>{meta.emoji}</span> {meta.label}
+                  </button>
+                )
+              )}
             </div>
           </div>
 
           {/* Title */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Title *</label>
+            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
+              Title *
+            </label>
             <input
               className={inputCls}
               value={title}
@@ -306,7 +430,9 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
 
           {/* Date */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Date *</label>
+            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
+              Date *
+            </label>
             <input
               type="date"
               className={inputCls}
@@ -317,7 +443,9 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
 
           {/* Notes */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Notes</label>
+            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
+              Notes
+            </label>
             <textarea
               className={`${inputCls} resize-none`}
               rows={3}
@@ -327,11 +455,44 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
             />
           </div>
 
-          {/* File upload */}
+          {/* Attachments section */}
           <div className="space-y-2">
             <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
               Attachments (images, PDFs, documents)
             </label>
+
+            {/* Already-saved attachments (edit mode) */}
+            {existingAttachments.length > 0 && (
+              <div className="space-y-2">
+                {existingAttachments.map((att, idx) => (
+                  <div
+                    key={`existing-${idx}-${att.storagePath}`}
+                    className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5"
+                  >
+                    {isImage(att.type) ? (
+                      <ImageIcon size={16} className="text-[var(--accent-blue)] shrink-0" />
+                    ) : (
+                      <FileText size={16} className="text-[var(--accent-yellow)] shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-[var(--text-primary)] truncate">{att.name}</p>
+                      <p className="text-[10px] text-[var(--text-faint)]">{formatBytes(att.size)}</p>
+                    </div>
+                    <span className="text-[10px] font-semibold text-[var(--success)] shrink-0">saved</span>
+                    <button
+                      type="button"
+                      onClick={() => removeExistingAttachment(att)}
+                      className="text-[var(--text-faint)] hover:text-[var(--danger)] transition shrink-0"
+                      title="Remove attachment"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Upload zone — triggers the always-mounted hidden input */}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -340,19 +501,15 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
               <Upload size={18} />
               Click to upload files
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx"
-              className="hidden"
-              onChange={handleFileSelect}
-            />
 
+            {/* Newly selected (not yet uploaded) files */}
             {selectedFiles.length > 0 && (
               <div className="space-y-2">
                 {selectedFiles.map((file, idx) => (
-                  <div key={idx} className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5">
+                  <div
+                    key={`new-${idx}-${file.name}-${file.size}`}
+                    className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5"
+                  >
                     {isImage(file.type) ? (
                       <ImageIcon size={16} className="text-[var(--accent-blue)] shrink-0" />
                     ) : (
@@ -374,6 +531,7 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
                       type="button"
                       onClick={() => removeSelectedFile(idx)}
                       className="text-[var(--text-faint)] hover:text-[var(--danger)] transition shrink-0"
+                      title="Remove file"
                     >
                       <X size={14} />
                     </button>
@@ -383,6 +541,7 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
             )}
           </div>
 
+          {/* Error banner */}
           {formError && (
             <div className="flex items-center gap-2 rounded-xl bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
               <AlertCircle size={16} />
@@ -390,10 +549,11 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
             </div>
           )}
 
+          {/* Action row */}
           <div className="flex gap-3 pt-1">
             <button
               type="button"
-              onClick={() => { setShowForm(false); resetForm(); }}
+              onClick={closeForm}
               className="flex-1 rounded-xl border border-[var(--border)] py-2.5 text-sm font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-card)] transition"
             >
               Cancel
@@ -405,13 +565,13 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
               className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[var(--accent-pink)] py-2.5 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-60"
             >
               {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-              {saving ? "Saving…" : "Save Report"}
+              {saving ? "Saving…" : formMode === "edit" ? "Update Report" : "Save Report"}
             </button>
           </div>
         </div>
       )}
 
-      {/* Reports list */}
+      {/* Empty state */}
       {reports.length === 0 && !showForm && (
         <div className="flex flex-col items-center py-16 text-center rounded-3xl border border-dashed border-[var(--border)] bg-[var(--bg-elevated)]">
           <div className="h-14 w-14 rounded-2xl bg-[var(--accent-pink-soft)] flex items-center justify-center mb-3">
@@ -423,7 +583,7 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
           </p>
           <button
             type="button"
-            onClick={() => { resetForm(); setShowForm(true); }}
+            onClick={openNewForm}
             className="mt-4 flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition"
           >
             <Plus size={15} />
@@ -432,15 +592,22 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
         </div>
       )}
 
+      {/* Reports list */}
       {reports.map((report) => {
-        const meta = CATEGORY_META[report.category];
-        const isExpanded = expandedId === report.id;
+        const meta          = CATEGORY_META[report.category];
+        const isExpanded    = expandedId === report.id;
+        const isBeingEdited = formMode === "edit" && editingReportId === report.id;
+
         return (
           <div
             key={report.id}
-            className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-sm overflow-hidden"
+            className={`rounded-3xl border bg-[var(--bg-elevated)] shadow-sm overflow-hidden transition ${
+              isBeingEdited
+                ? "border-[var(--accent-pink)] opacity-50 pointer-events-none"
+                : "border-[var(--border)]"
+            }`}
           >
-            {/* Report header */}
+            {/* Collapse / expand header */}
             <button
               type="button"
               onClick={() => setExpandedId(isExpanded ? null : (report.id ?? null))}
@@ -455,45 +622,57 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-[var(--text-primary)] truncate">{report.title}</p>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: meta.color }}>
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-wide"
+                    style={{ color: meta.color }}
+                  >
                     {meta.label}
                   </span>
                   <span className="text-[var(--text-faint)] text-[10px]">·</span>
                   <span className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
                     <Calendar size={10} />
                     {new Date(report.date + "T00:00:00").toLocaleDateString("en-IN", {
-                      day: "numeric", month: "short", year: "numeric"
+                      day: "numeric", month: "short", year: "numeric",
                     })}
                   </span>
                   {report.attachments.length > 0 && (
                     <>
                       <span className="text-[var(--text-faint)] text-[10px]">·</span>
-                      <span className="text-[10px] text-[var(--text-secondary)]">{report.attachments.length} file{report.attachments.length > 1 ? "s" : ""}</span>
+                      <span className="text-[10px] text-[var(--text-secondary)]">
+                        {report.attachments.length} file{report.attachments.length > 1 ? "s" : ""}
+                      </span>
                     </>
                   )}
                 </div>
               </div>
-              <ChevronRight size={16} className={`text-[var(--text-faint)] shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+              <ChevronRight
+                size={16}
+                className={`text-[var(--text-faint)] shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+              />
             </button>
 
-            {/* Expanded content */}
+            {/* Expanded detail */}
             {isExpanded && (
               <div className="px-4 pb-4 space-y-4 border-t border-[var(--border)]">
                 {report.notes && (
                   <div className="pt-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">Notes</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">
+                      Notes
+                    </p>
                     <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{report.notes}</p>
                   </div>
                 )}
 
                 {report.attachments.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-2">Attachments</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-2">
+                      Attachments
+                    </p>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {report.attachments.map((att, idx) => (
+                      {report.attachments.map((att, idx) =>
                         isImage(att.type) ? (
                           <button
-                            key={idx}
+                            key={`img-${idx}-${att.storagePath}`}
                             type="button"
                             onClick={() => setLightboxUrl(att.url)}
                             className="relative rounded-xl overflow-hidden border border-[var(--border)] aspect-square group"
@@ -504,11 +683,13 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
                               className="w-full h-full object-cover group-hover:opacity-90 transition"
                             />
                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition" />
-                            <p className="absolute bottom-0 left-0 right-0 bg-black/50 px-2 py-1 text-[9px] text-white truncate">{att.name}</p>
+                            <p className="absolute bottom-0 left-0 right-0 bg-black/50 px-2 py-1 text-[9px] text-white truncate">
+                              {att.name}
+                            </p>
                           </button>
                         ) : (
                           <a
-                            key={idx}
+                            key={`doc-${idx}-${att.storagePath}`}
                             href={att.url}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -516,21 +697,33 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
                           >
                             <FileCheck size={18} className="text-[var(--accent-yellow)] shrink-0" />
                             <div className="min-w-0">
-                              <p className="text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-pink)]">{att.name}</p>
+                              <p className="text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-pink)]">
+                                {att.name}
+                              </p>
                               <p className="text-[10px] text-[var(--text-faint)]">{formatBytes(att.size)}</p>
                             </div>
                           </a>
                         )
-                      ))}
+                      )}
                     </div>
                   </div>
                 )}
 
-                <div className="flex justify-end pt-1">
+                {/* Edit / Delete row */}
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => openEditForm(report)}
+                    disabled={showForm}
+                    className="flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-card)] transition disabled:opacity-40"
+                  >
+                    <Edit3 size={13} />
+                    Edit Report
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleDelete(report)}
-                    disabled={deletingId === report.id}
+                    disabled={deletingId === report.id || showForm}
                     className="flex items-center gap-1.5 rounded-xl border border-[var(--danger-soft)] px-3 py-2 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)] transition disabled:opacity-50"
                   >
                     {deletingId === report.id ? (
@@ -538,7 +731,7 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
                     ) : (
                       <Trash2 size={13} />
                     )}
-                    Delete Report
+                    Delete
                   </button>
                 </div>
               </div>
@@ -547,7 +740,7 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
         );
       })}
 
-      {/* Lightbox */}
+      {/* Image lightbox */}
       {lightboxUrl && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
@@ -576,16 +769,16 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
 
 export function ProfileView({ userId, userName, onNameChange, onSignOut }: ProfileViewProps) {
   const { theme, setTheme } = useTheme();
-  const [profile, setProfile] = useState<FitnessProfile | null>(null);
+  const [profile, setProfile]           = useState<FitnessProfile | null>(null);
   const [liveWeightKg, setLiveWeightKg] = useState<number | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<FitnessProfile>(EMPTY_PROFILE);
-  const [step, setStep] = useState<Step>("personal");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
-  const [activeTab, setActiveTab] = useState<ProfileTab>("profile");
+  const [editing, setEditing]           = useState(false);
+  const [draft, setDraft]               = useState<FitnessProfile>(EMPTY_PROFILE);
+  const [step, setStep]                 = useState<Step>("personal");
+  const [loading, setLoading]           = useState(true);
+  const [saving, setSaving]             = useState(false);
+  const [error, setError]               = useState("");
+  const [success, setSuccess]           = useState(false);
+  const [activeTab, setActiveTab]       = useState<ProfileTab>("profile");
 
   useEffect(() => {
     let cancelled = false;
@@ -694,13 +887,13 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
     );
   }
 
-  // ── Profile Setup Wizard ───────────────────────────────────────
+  // ── Profile setup / edit wizard ────────────────────────
+
   if (editing) {
     const stepIdx = STEPS.indexOf(step);
 
     return (
       <div className="mx-auto max-w-lg">
-        {/* Header */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xl font-bold text-[var(--text-primary)]">
@@ -717,7 +910,7 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
             )}
           </div>
 
-          {/* Step indicator */}
+          {/* Progress bar */}
           <div className="flex items-center gap-2 mb-2">
             {STEPS.filter((s) => s !== "done").map((s, i) => (
               <div
@@ -733,14 +926,13 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
           </p>
         </div>
 
-        {/* Step Content */}
         <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-sm">
-          {step === "personal" && <StepPersonal draft={draft} update={update} />}
-          {step === "body" && <StepBody draft={draft} update={update} />}
-          {step === "goals" && <StepGoals draft={draft} update={update} />}
+          {step === "personal"  && <StepPersonal  draft={draft} update={update} />}
+          {step === "body"      && <StepBody      draft={draft} update={update} />}
+          {step === "goals"     && <StepGoals     draft={draft} update={update} />}
           {step === "lifestyle" && <StepLifestyle draft={draft} update={update} />}
-          {step === "health" && <StepHealth draft={draft} update={update} toggleCondition={toggleCondition} />}
-          {step === "done" && <StepSummary draft={draft} />}
+          {step === "health"    && <StepHealth    draft={draft} update={update} toggleCondition={toggleCondition} />}
+          {step === "done"      && <StepSummary   draft={draft} />}
 
           {error && (
             <div className="mt-4 flex items-center gap-2 rounded-xl bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
@@ -767,7 +959,7 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
               <button
                 type="button"
                 onClick={nextStep}
-                className="flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[var(--success)] transition"
+                className="flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition"
               >
                 Continue
                 <ChevronRight size={16} />
@@ -789,7 +981,8 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
     );
   }
 
-  // ── Profile View ───────────────────────────────────────
+  // ── No profile yet ─────────────────────────────────────
+
   if (!profile) {
     return (
       <div className="space-y-5">
@@ -799,11 +992,13 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
             <User size={28} className="text-[var(--accent-pink)]" />
           </div>
           <h3 className="font-bold text-[var(--text-primary)] text-lg">No profile yet</h3>
-          <p className="text-sm text-[var(--text-secondary)] mt-1 mb-4">Set up your fitness profile to unlock analytics.</p>
+          <p className="text-sm text-[var(--text-secondary)] mt-1 mb-4">
+            Set up your fitness profile to unlock analytics.
+          </p>
           <button
             type="button"
             onClick={startEdit}
-            className="rounded-xl bg-[var(--accent-pink)] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[var(--success)] transition"
+            className="rounded-xl bg-[var(--accent-pink)] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition"
           >
             Set up profile
           </button>
@@ -822,14 +1017,16 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
     );
   }
 
+  // ── Profile view ───────────────────────────────────────
+
   const effectiveWeightKg = liveWeightKg ?? profile.weightKg;
-  const bmi = effectiveWeightKg && profile.heightCm
+  const bmi     = effectiveWeightKg && profile.heightCm
     ? calculateBMI(effectiveWeightKg, profile.heightCm) : null;
-  const bmiCat = bmi ? getBMICategory(bmi) : null;
-  const age = profile.dateOfBirth ? calculateAge(profile.dateOfBirth) : null;
-  const bmr = effectiveWeightKg && profile.heightCm && age && profile.gender
+  const bmiCat  = bmi ? getBMICategory(bmi) : null;
+  const age     = profile.dateOfBirth ? calculateAge(profile.dateOfBirth) : null;
+  const bmr     = effectiveWeightKg && profile.heightCm && age && profile.gender
     ? calculateBMR(effectiveWeightKg, profile.heightCm, age, profile.gender) : null;
-  const tdee = bmr && profile.activityLevel ? calculateTDEE(bmr, profile.activityLevel) : null;
+  const tdee    = bmr && profile.activityLevel ? calculateTDEE(bmr, profile.activityLevel) : null;
 
   return (
     <div className="space-y-5">
@@ -874,7 +1071,7 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
         </div>
       </div>
 
-      {/* ── Tabs ── */}
+      {/* Tabs */}
       <div className="flex rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-1 gap-1">
         <button
           type="button"
@@ -898,14 +1095,14 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
           }`}
         >
           <FileText size={15} />
-          Medical Report
+          Medical Reports
         </button>
       </div>
 
-      {/* ── Tab Content ── */}
+      {/* Tab content */}
       {activeTab === "profile" && (
         <>
-          {/* BMI Card */}
+          {/* BMI card */}
           {bmi && bmiCat && (
             <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-4">
@@ -918,19 +1115,22 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
                 )}
               </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <BMIBlock label="BMI" value={bmi.toFixed(1)} sub={bmiCat.label} subColor={bmiCat.color} />
-                <BMIBlock label="Height" value={`${profile.heightCm}`} sub="cm" />
-                <BMIBlock label="Weight" value={`${effectiveWeightKg}`} sub="kg" />
+                <BMIBlock label="BMI"    value={bmi.toFixed(1)}                                          sub={bmiCat.label} subColor={bmiCat.color} />
+                <BMIBlock label="Height" value={`${profile.heightCm}`}                                  sub="cm" />
+                <BMIBlock label="Weight" value={`${effectiveWeightKg}`}                                 sub="kg" />
                 <BMIBlock label="Target" value={profile.targetWeightKg ? `${profile.targetWeightKg}` : "—"} sub="kg" />
               </div>
-              {/* BMI bar */}
               <div className="mt-4 space-y-1">
-                <div className="relative h-3 rounded-full overflow-hidden" style={{
-                  background: "linear-gradient(to right, var(--accent-blue) 0%, var(--success) 30%, var(--warning) 60%, var(--danger) 100%)"
-                }}>
+                <div
+                  className="relative h-3 rounded-full overflow-hidden"
+                  style={{ background: "linear-gradient(to right, var(--accent-blue) 0%, var(--success) 30%, var(--warning) 60%, var(--danger) 100%)" }}
+                >
                   <div
                     className="absolute top-0 h-full w-1 bg-[var(--bg-elevated)] rounded-full shadow"
-                    style={{ left: `${Math.min(100, Math.max(0, ((bmi - 10) / 30) * 100))}%`, transform: "translateX(-50%)" }}
+                    style={{
+                      left: `${Math.min(100, Math.max(0, ((bmi - 10) / 30) * 100))}%`,
+                      transform: "translateX(-50%)",
+                    }}
                   />
                 </div>
                 <div className="flex justify-between text-[10px] text-[var(--text-muted)]">
@@ -940,7 +1140,7 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
             </div>
           )}
 
-          {/* Calorie info */}
+          {/* Daily energy card */}
           {tdee && (
             <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-4">
@@ -965,12 +1165,12 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
               <h3 className="font-bold text-[var(--text-primary)]">Goals & Lifestyle</h3>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <GoalItem icon={<Target size={15} />} label="Goal" value={profile.fitnessGoal?.replace(/_/g, " ") || "—"} />
+              <GoalItem icon={<Target size={15} />}   label="Goal"          value={profile.fitnessGoal?.replace(/_/g, " ") || "—"} />
               <GoalItem icon={<Activity size={15} />} label="Workouts/week" value={profile.weeklyWorkoutDays ? `${profile.weeklyWorkoutDays} days` : "—"} />
-              <GoalItem icon={<Activity size={15} />} label="Daily steps" value={profile.dailyStepsGoal ? profile.dailyStepsGoal.toLocaleString() : "—"} />
-              <GoalItem icon={<Droplets size={15} />} label="Water" value={profile.dailyWaterLiters ? `${profile.dailyWaterLiters} L` : "—"} />
-              <GoalItem icon={<Moon size={15} />} label="Sleep" value={profile.sleepHoursGoal ? `${profile.sleepHoursGoal}h` : "—"} />
-              <GoalItem icon={<Utensils size={15} />} label="Diet" value={profile.dietaryPreference || "—"} />
+              <GoalItem icon={<Activity size={15} />} label="Daily steps"   value={profile.dailyStepsGoal ? profile.dailyStepsGoal.toLocaleString() : "—"} />
+              <GoalItem icon={<Droplets size={15} />} label="Water"         value={profile.dailyWaterLiters ? `${profile.dailyWaterLiters} L` : "—"} />
+              <GoalItem icon={<Moon size={15} />}     label="Sleep"         value={profile.sleepHoursGoal ? `${profile.sleepHoursGoal}h` : "—"} />
+              <GoalItem icon={<Utensils size={15} />} label="Diet"          value={profile.dietaryPreference || "—"} />
             </div>
           </div>
 
@@ -983,7 +1183,10 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
               </div>
               <div className="flex flex-wrap gap-2">
                 {profile.healthConditions.map((c) => (
-                  <span key={c} className="rounded-full bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-3 py-1 text-xs font-semibold text-[var(--danger)]">
+                  <span
+                    key={c}
+                    className="rounded-full bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-3 py-1 text-xs font-semibold text-[var(--danger)]"
+                  >
                     {c}
                   </span>
                 ))}
@@ -995,7 +1198,7 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
 
       {activeTab === "medical" && <MedicalReportTab userId={userId} />}
 
-      {/* Sign Out */}
+      {/* Sign out */}
       {onSignOut && (
         <button
           type="button"
@@ -1010,7 +1213,7 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
   );
 }
 
-// ── Step Components ────────────────────────────────────────
+// ── Step components ────────────────────────────────────────
 
 function StepPersonal({ draft, update }: {
   draft: FitnessProfile;
@@ -1019,7 +1222,6 @@ function StepPersonal({ draft, update }: {
   return (
     <div className="space-y-4">
       <StepHeading icon={<User size={20} />} title="Tell us about yourself" subtitle="Basic personal details" />
-
       <Field label="Full Name">
         <input
           className={inputCls}
@@ -1028,7 +1230,6 @@ function StepPersonal({ draft, update }: {
           placeholder="Your name"
         />
       </Field>
-
       <Field label="Date of Birth">
         <input
           type="date"
@@ -1037,7 +1238,6 @@ function StepPersonal({ draft, update }: {
           onChange={(e) => update("dateOfBirth", e.target.value)}
         />
       </Field>
-
       <Field label="Gender">
         <div className="grid grid-cols-3 gap-2">
           {(["male", "female", "other"] as const).map((g) => (
@@ -1064,14 +1264,12 @@ function StepBody({ draft, update }: {
   draft: FitnessProfile;
   update: <K extends keyof FitnessProfile>(k: K, v: FitnessProfile[K]) => void;
 }) {
-  const bmi = draft.weightKg && draft.heightCm
-    ? calculateBMI(draft.weightKg, draft.heightCm) : null;
+  const bmi    = draft.weightKg && draft.heightCm ? calculateBMI(draft.weightKg, draft.heightCm) : null;
   const bmiCat = bmi ? getBMICategory(bmi) : null;
 
   return (
     <div className="space-y-4">
       <StepHeading icon={<Scale size={20} />} title="Body measurements" subtitle="Used to calculate BMI and calorie needs" />
-
       <Field label="Height (cm)">
         <input
           type="number"
@@ -1083,7 +1281,6 @@ function StepBody({ draft, update }: {
           max={250}
         />
       </Field>
-
       <Field label="Current Weight (kg)">
         <input
           type="number"
@@ -1094,7 +1291,6 @@ function StepBody({ draft, update }: {
           step={0.1}
         />
       </Field>
-
       <Field label="Target Weight (kg)">
         <input
           type="number"
@@ -1105,9 +1301,11 @@ function StepBody({ draft, update }: {
           step={0.1}
         />
       </Field>
-
       {bmi && bmiCat && (
-        <div className="rounded-2xl p-4" style={{ backgroundColor: `${bmiCat.color}15`, border: `1px solid ${bmiCat.color}40` }}>
+        <div
+          className="rounded-2xl p-4"
+          style={{ backgroundColor: `${bmiCat.color}15`, border: `1px solid ${bmiCat.color}40` }}
+        >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-[var(--text-secondary)]">Your BMI</p>
@@ -1129,17 +1327,16 @@ function StepGoals({ draft, update }: {
   update: <K extends keyof FitnessProfile>(k: K, v: FitnessProfile[K]) => void;
 }) {
   const goals = [
-    { value: "lose_weight", label: "Lose Weight", emoji: "⬇️" },
-    { value: "gain_muscle", label: "Gain Muscle", emoji: "💪" },
-    { value: "maintain", label: "Maintain", emoji: "⚖️" },
-    { value: "improve_endurance", label: "Endurance", emoji: "🏃" },
-    { value: "general_health", label: "General Health", emoji: "❤️" },
+    { value: "lose_weight",       label: "Lose Weight",    emoji: "⬇️" },
+    { value: "gain_muscle",       label: "Gain Muscle",    emoji: "💪" },
+    { value: "maintain",          label: "Maintain",       emoji: "⚖️" },
+    { value: "improve_endurance", label: "Endurance",      emoji: "🏃" },
+    { value: "general_health",    label: "General Health", emoji: "❤️" },
   ] as const;
 
   return (
     <div className="space-y-4">
       <StepHeading icon={<Target size={20} />} title="What's your goal?" subtitle="We'll personalise your experience" />
-
       <div className="grid grid-cols-1 gap-2">
         {goals.map((g) => (
           <button
@@ -1158,7 +1355,6 @@ function StepGoals({ draft, update }: {
           </button>
         ))}
       </div>
-
       <Field label="Weekly workout days">
         <div className="flex gap-2 flex-wrap">
           {[1, 2, 3, 4, 5, 6, 7].map((d) => (
@@ -1177,7 +1373,6 @@ function StepGoals({ draft, update }: {
           ))}
         </div>
       </Field>
-
       <Field label="Daily steps goal">
         <select
           className={selectCls}
@@ -1199,11 +1394,11 @@ function StepLifestyle({ draft, update }: {
   update: <K extends keyof FitnessProfile>(k: K, v: FitnessProfile[K]) => void;
 }) {
   const activityLevels = [
-    { value: "sedentary", label: "Sedentary", sub: "Little or no exercise" },
-    { value: "lightly_active", label: "Lightly Active", sub: "Light exercise 1–3 days/week" },
+    { value: "sedentary",         label: "Sedentary",         sub: "Little or no exercise" },
+    { value: "lightly_active",    label: "Lightly Active",    sub: "Light exercise 1–3 days/week" },
     { value: "moderately_active", label: "Moderately Active", sub: "Moderate exercise 3–5 days/week" },
-    { value: "very_active", label: "Very Active", sub: "Hard exercise 6–7 days/week" },
-    { value: "extra_active", label: "Extra Active", sub: "Physical job or twice-daily training" },
+    { value: "very_active",       label: "Very Active",       sub: "Hard exercise 6–7 days/week" },
+    { value: "extra_active",      label: "Extra Active",      sub: "Physical job or twice-daily training" },
   ] as const;
 
   const diets = ["none", "vegetarian", "vegan", "keto", "paleo", "mediterranean"] as const;
@@ -1211,7 +1406,6 @@ function StepLifestyle({ draft, update }: {
   return (
     <div className="space-y-4">
       <StepHeading icon={<Activity size={20} />} title="Your lifestyle" subtitle="Helps us calculate calorie needs accurately" />
-
       <Field label="Activity level">
         <div className="space-y-2">
           {activityLevels.map((a) => (
@@ -1234,7 +1428,6 @@ function StepLifestyle({ draft, update }: {
           ))}
         </div>
       </Field>
-
       <Field label="Dietary preference">
         <div className="flex flex-wrap gap-2">
           {diets.map((d) => (
@@ -1253,7 +1446,6 @@ function StepLifestyle({ draft, update }: {
           ))}
         </div>
       </Field>
-
       <div className="grid grid-cols-2 gap-3">
         <Field label="Daily water (L)">
           <select
@@ -1292,7 +1484,6 @@ function StepHealth({ draft, update, toggleCondition }: {
   return (
     <div className="space-y-4">
       <StepHeading icon={<Heart size={20} />} title="Health information" subtitle="Optional — helps personalise your experience" />
-
       <Field label="Health conditions (if any)">
         <div className="flex flex-wrap gap-2">
           {HEALTH_CONDITIONS_LIST.map((c) => {
@@ -1316,7 +1507,6 @@ function StepHealth({ draft, update, toggleCondition }: {
           })}
         </div>
       </Field>
-
       <Field label="Reminders">
         <button
           type="button"
@@ -1327,7 +1517,9 @@ function StepHealth({ draft, update, toggleCondition }: {
               : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
           }`}
         >
-          {draft.reminderEnabled ? <Check size={16} /> : <span className="h-4 w-4 rounded-sm border border-[var(--text-faint)]" />}
+          {draft.reminderEnabled
+            ? <Check size={16} />
+            : <span className="h-4 w-4 rounded-sm border border-[var(--text-faint)]" />}
           Enable daily reminders
         </button>
       </Field>
@@ -1336,21 +1528,19 @@ function StepHealth({ draft, update, toggleCondition }: {
 }
 
 function StepSummary({ draft }: { draft: FitnessProfile }) {
-  const bmi = draft.weightKg && draft.heightCm
-    ? calculateBMI(draft.weightKg, draft.heightCm) : null;
+  const bmi    = draft.weightKg && draft.heightCm ? calculateBMI(draft.weightKg, draft.heightCm) : null;
   const bmiCat = bmi ? getBMICategory(bmi) : null;
-  const age = draft.dateOfBirth ? calculateAge(draft.dateOfBirth) : null;
+  const age    = draft.dateOfBirth ? calculateAge(draft.dateOfBirth) : null;
 
   return (
     <div className="space-y-4">
       <StepHeading icon={<Check size={20} />} title="Looking good!" subtitle="Review your details before saving" />
-
       <div className="space-y-2 text-sm">
-        <SummaryRow label="Name" value={draft.name || "—"} />
-        <SummaryRow label="Age" value={age ? `${age} yrs` : "—"} />
-        <SummaryRow label="Gender" value={draft.gender || "—"} />
-        <SummaryRow label="Height" value={draft.heightCm ? `${draft.heightCm} cm` : "—"} />
-        <SummaryRow label="Weight" value={draft.weightKg ? `${draft.weightKg} kg` : "—"} />
+        <SummaryRow label="Name"          value={draft.name || "—"} />
+        <SummaryRow label="Age"           value={age ? `${age} yrs` : "—"} />
+        <SummaryRow label="Gender"        value={draft.gender || "—"} />
+        <SummaryRow label="Height"        value={draft.heightCm ? `${draft.heightCm} cm` : "—"} />
+        <SummaryRow label="Weight"        value={draft.weightKg ? `${draft.weightKg} kg` : "—"} />
         {bmi && bmiCat && (
           <div className="flex justify-between py-1.5">
             <span className="text-[var(--text-secondary)] font-medium">BMI</span>
@@ -1359,21 +1549,18 @@ function StepSummary({ draft }: { draft: FitnessProfile }) {
             </span>
           </div>
         )}
-        <SummaryRow label="Goal" value={draft.fitnessGoal?.replace(/_/g, " ") || "—"} />
-        <SummaryRow label="Activity" value={draft.activityLevel?.replace(/_/g, " ") || "—"} />
-        <SummaryRow label="Diet" value={draft.dietaryPreference || "—"} />
+        <SummaryRow label="Goal"          value={draft.fitnessGoal?.replace(/_/g, " ") || "—"} />
+        <SummaryRow label="Activity"      value={draft.activityLevel?.replace(/_/g, " ") || "—"} />
+        <SummaryRow label="Diet"          value={draft.dietaryPreference || "—"} />
         <SummaryRow label="Workouts/week" value={draft.weeklyWorkoutDays ? `${draft.weeklyWorkoutDays} days` : "—"} />
       </div>
     </div>
   );
 }
 
-// ── Helpers ────────────────────────────────────────────────
+// ── Shared UI helpers ──────────────────────────────────────
 
-function AppearanceCard({
-  theme,
-  onSelect,
-}: {
+function AppearanceCard({ theme, onSelect }: {
   theme: "light" | "dark";
   onSelect: (t: "light" | "dark") => void;
 }) {
@@ -1384,37 +1571,30 @@ function AppearanceCard({
         This device remembers your pick — it's saved to your account too.
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => onSelect("dark")}
-          className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold transition
-            ${theme === "dark"
-              ? "border-[var(--accent-pink)] bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]"
-              : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent-pink)]"
+        {(["dark", "light"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => onSelect(t)}
+            className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold transition ${
+              theme === t
+                ? "border-[var(--accent-pink)] bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]"
+                : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent-pink)]"
             }`}
-        >
-          <Moon size={15} />
-          Dark
-        </button>
-        <button
-          type="button"
-          onClick={() => onSelect("light")}
-          className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold transition
-            ${theme === "light"
-              ? "border-[var(--accent-pink)] bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]"
-              : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent-pink)]"
-            }`}
-        >
-          <Sun size={15} />
-          Light
-        </button>
+          >
+            {t === "dark" ? <Moon size={15} /> : <Sun size={15} />}
+            {t.charAt(0).toUpperCase() + t.slice(1)}
+          </button>
+        ))}
       </div>
     </div>
   );
 }
 
-const inputCls = "w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] placeholder-[var(--text-faint)] focus:border-[var(--accent-pink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-pink)]/20 transition";
-const selectCls = "w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] focus:border-[var(--accent-pink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-pink)]/20 transition";
+const inputCls =
+  "w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] placeholder-[var(--text-faint)] focus:border-[var(--accent-pink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-pink)]/20 transition";
+const selectCls =
+  "w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] focus:border-[var(--accent-pink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-pink)]/20 transition";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -1448,12 +1628,16 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function BMIBlock({ label, value, sub, subColor }: { label: string; value: string; sub: string; subColor?: string }) {
+function BMIBlock({ label, value, sub, subColor }: {
+  label: string; value: string; sub: string; subColor?: string;
+}) {
   return (
     <div className="rounded-2xl bg-[var(--bg-elevated)] p-3">
       <p className="text-xs text-[var(--text-secondary)]">{label}</p>
       <p className="text-2xl font-bold text-[var(--text-primary)] mt-0.5">{value}</p>
-      <p className="text-xs font-semibold mt-0.5 capitalize" style={{ color: subColor ?? "var(--text-secondary)" }}>{sub}</p>
+      <p className="text-xs font-semibold mt-0.5 capitalize" style={{ color: subColor ?? "var(--text-secondary)" }}>
+        {sub}
+      </p>
     </div>
   );
 }
@@ -1461,7 +1645,8 @@ function BMIBlock({ label, value, sub, subColor }: { label: string; value: strin
 function GoalItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-[var(--accent-pink-soft)] bg-[var(--bg-elevated)] p-3">
-      <div className="flex items-center gap-1.5 mb-1 text-[var(--accent-pink)]">{icon}
+      <div className="flex items-center gap-1.5 mb-1 text-[var(--accent-pink)]">
+        {icon}
         <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
       </div>
       <p className="text-sm font-semibold text-[var(--text-secondary)] capitalize">{value}</p>
