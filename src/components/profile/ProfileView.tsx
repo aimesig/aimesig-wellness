@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   User,
   ChevronRight,
@@ -17,6 +17,15 @@ import {
   Loader2,
   AlertCircle,
   LogOut,
+  FileText,
+  Upload,
+  Trash2,
+  Plus,
+  X,
+  Image as ImageIcon,
+  FileCheck,
+  Calendar,
+  ClipboardList,
 } from "lucide-react";
 import {
   getProfile,
@@ -31,6 +40,15 @@ import {
 import { useTheme } from "../../context/ThemeContext";
 import { saveUserTheme } from "../../services/themeService";
 import { getWeightRoutine, getWeightEntries } from "../../services/weightService";
+import {
+  getMedicalReports,
+  saveMedicalReport,
+  deleteMedicalReport,
+  uploadMedicalFile,
+  type MedicalReport,
+  type ReportCategory,
+  type MedicalAttachment,
+} from "../../services/medicalReportService";
 
 interface ProfileViewProps {
   userId: string;
@@ -74,6 +92,488 @@ const HEALTH_CONDITIONS_LIST = [
   "Thyroid Disorder", "PCOS", "Arthritis", "Back Pain", "None",
 ];
 
+type ProfileTab = "profile" | "medical";
+
+const CATEGORY_META: Record<ReportCategory, { label: string; emoji: string; color: string }> = {
+  checkup: { label: "Health Checkup", emoji: "🩺", color: "var(--accent-blue)" },
+  issue: { label: "Health Issue", emoji: "🤒", color: "var(--danger)" },
+  lab: { label: "Lab Report", emoji: "🧪", color: "var(--accent-yellow)" },
+  prescription: { label: "Prescription", emoji: "💊", color: "var(--success)" },
+  other: { label: "Other", emoji: "📋", color: "var(--text-secondary)" },
+};
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isImage(mime: string) {
+  return mime.startsWith("image/");
+}
+
+// ── Medical Report Tab ─────────────────────────────────────
+
+interface MedicalReportTabProps {
+  userId: string;
+}
+
+function MedicalReportTab({ userId }: MedicalReportTabProps) {
+  const [reports, setReports] = useState<MedicalReport[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  // Form state
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState<ReportCategory>("checkup");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [notes, setNotes] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const data = await getMedicalReports(userId);
+        if (!cancelled) setReports(data);
+      } catch {
+        // silently ignore
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  function resetForm() {
+    setTitle("");
+    setCategory("checkup");
+    setDate(new Date().toISOString().split("T")[0]);
+    setNotes("");
+    setSelectedFiles([]);
+    setUploadProgress({});
+    setFormError("");
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!e.target.files) return;
+    const newFiles = Array.from(e.target.files);
+    setSelectedFiles((prev) => [...prev, ...newFiles]);
+    e.target.value = "";
+  }
+
+  function removeSelectedFile(idx: number) {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  async function handleSave() {
+    if (!title.trim()) { setFormError("Please enter a title."); return; }
+    if (!date) { setFormError("Please select a date."); return; }
+    setSaving(true);
+    setFormError("");
+    try {
+      // Step 1: upload attachments
+      const attachments: MedicalAttachment[] = [];
+      for (const file of selectedFiles) {
+        const att = await uploadMedicalFile(userId, file, (pct) => {
+          setUploadProgress((prev) => ({ ...prev, [file.name]: pct }));
+        });
+        attachments.push(att);
+      }
+
+      // Step 2: save to Firestore
+      const savedId = await saveMedicalReport(userId, { title: title.trim(), category, date, notes, attachments });
+
+      // Step 3: reload list — done separately so a slow index doesn't fail the save
+      resetForm();
+      setShowForm(false);
+      try {
+        const updated = await getMedicalReports(userId);
+        setReports(updated);
+      } catch {
+        // Index may still be building — add the new report to local state directly
+        setReports((prev) => [
+          { id: savedId, title: title.trim(), category, date, notes, attachments },
+          ...prev,
+        ]);
+      }
+    } catch (err) {
+      console.error("handleSave failed:", err);
+      setFormError("Failed to save. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(report: MedicalReport) {
+    if (!report.id) return;
+    setDeletingId(report.id);
+    try {
+      await deleteMedicalReport(userId, report.id, report.attachments);
+      setReports((prev) => prev.filter((r) => r.id !== report.id));
+      if (expandedId === report.id) setExpandedId(null);
+    } catch {
+      // silently ignore
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent-pink)]" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-[var(--text-primary)] text-base">Medical Reports</h3>
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+            Store health checkups, lab results, prescriptions & more
+          </p>
+        </div>
+        {!showForm && (
+          <button
+            type="button"
+            onClick={() => { resetForm(); setShowForm(true); }}
+            className="flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition shadow-sm"
+          >
+            <Plus size={15} />
+            Add Report
+          </button>
+        )}
+      </div>
+
+      {/* Add Report Form */}
+      {showForm && (
+        <div className="rounded-3xl border border-[var(--accent-pink)] bg-[var(--bg-elevated)] p-5 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="font-bold text-[var(--text-primary)]">New Medical Report</h4>
+            <button
+              type="button"
+              onClick={() => { setShowForm(false); resetForm(); }}
+              className="text-[var(--text-faint)] hover:text-[var(--text-secondary)] transition"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Category */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Category</label>
+            <div className="flex flex-wrap gap-2">
+              {(Object.entries(CATEGORY_META) as [ReportCategory, typeof CATEGORY_META[ReportCategory]][]).map(([val, meta]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setCategory(val)}
+                  className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                    category === val
+                      ? "border-[var(--accent-pink)] bg-[var(--bg-elevated)] text-[var(--accent-pink)]"
+                      : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-card)]"
+                  }`}
+                >
+                  <span>{meta.emoji}</span> {meta.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Title */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Title *</label>
+            <input
+              className={inputCls}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Annual Blood Test, Thyroid Checkup"
+            />
+          </div>
+
+          {/* Date */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Date *</label>
+            <input
+              type="date"
+              className={inputCls}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+
+          {/* Notes */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Notes</label>
+            <textarea
+              className={`${inputCls} resize-none`}
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Symptoms, doctor notes, observations…"
+            />
+          </div>
+
+          {/* File upload */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
+              Attachments (images, PDFs, documents)
+            </label>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[var(--border)] py-5 text-sm font-semibold text-[var(--text-secondary)] hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)] transition"
+            >
+              <Upload size={18} />
+              Click to upload files
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx"
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+
+            {selectedFiles.length > 0 && (
+              <div className="space-y-2">
+                {selectedFiles.map((file, idx) => (
+                  <div key={idx} className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5">
+                    {isImage(file.type) ? (
+                      <ImageIcon size={16} className="text-[var(--accent-blue)] shrink-0" />
+                    ) : (
+                      <FileText size={16} className="text-[var(--accent-yellow)] shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-[var(--text-primary)] truncate">{file.name}</p>
+                      <p className="text-[10px] text-[var(--text-faint)]">{formatBytes(file.size)}</p>
+                      {uploadProgress[file.name] !== undefined && (
+                        <div className="mt-1 h-1 w-full rounded-full bg-[var(--border)] overflow-hidden">
+                          <div
+                            className="h-full bg-[var(--accent-pink)] rounded-full transition-all"
+                            style={{ width: `${uploadProgress[file.name]}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeSelectedFile(idx)}
+                      className="text-[var(--text-faint)] hover:text-[var(--danger)] transition shrink-0"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {formError && (
+            <div className="flex items-center gap-2 rounded-xl bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
+              <AlertCircle size={16} />
+              {formError}
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={() => { setShowForm(false); resetForm(); }}
+              className="flex-1 rounded-xl border border-[var(--border)] py-2.5 text-sm font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-card)] transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[var(--accent-pink)] py-2.5 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-60"
+            >
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+              {saving ? "Saving…" : "Save Report"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reports list */}
+      {reports.length === 0 && !showForm && (
+        <div className="flex flex-col items-center py-16 text-center rounded-3xl border border-dashed border-[var(--border)] bg-[var(--bg-elevated)]">
+          <div className="h-14 w-14 rounded-2xl bg-[var(--accent-pink-soft)] flex items-center justify-center mb-3">
+            <ClipboardList size={26} className="text-[var(--accent-pink)]" />
+          </div>
+          <h4 className="font-bold text-[var(--text-primary)]">No reports yet</h4>
+          <p className="text-sm text-[var(--text-secondary)] mt-1 max-w-xs">
+            Upload health checkup logs, lab results, prescriptions, or any medical documents.
+          </p>
+          <button
+            type="button"
+            onClick={() => { resetForm(); setShowForm(true); }}
+            className="mt-4 flex items-center gap-2 rounded-xl bg-[var(--accent-pink)] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition"
+          >
+            <Plus size={15} />
+            Add your first report
+          </button>
+        </div>
+      )}
+
+      {reports.map((report) => {
+        const meta = CATEGORY_META[report.category];
+        const isExpanded = expandedId === report.id;
+        return (
+          <div
+            key={report.id}
+            className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-sm overflow-hidden"
+          >
+            {/* Report header */}
+            <button
+              type="button"
+              onClick={() => setExpandedId(isExpanded ? null : (report.id ?? null))}
+              className="w-full flex items-center gap-3 p-4 text-left hover:bg-[var(--bg-card)] transition"
+            >
+              <div
+                className="h-10 w-10 rounded-xl flex items-center justify-center text-lg shrink-0"
+                style={{ backgroundColor: `${meta.color}18` }}
+              >
+                {meta.emoji}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-[var(--text-primary)] truncate">{report.title}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: meta.color }}>
+                    {meta.label}
+                  </span>
+                  <span className="text-[var(--text-faint)] text-[10px]">·</span>
+                  <span className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
+                    <Calendar size={10} />
+                    {new Date(report.date + "T00:00:00").toLocaleDateString("en-IN", {
+                      day: "numeric", month: "short", year: "numeric"
+                    })}
+                  </span>
+                  {report.attachments.length > 0 && (
+                    <>
+                      <span className="text-[var(--text-faint)] text-[10px]">·</span>
+                      <span className="text-[10px] text-[var(--text-secondary)]">{report.attachments.length} file{report.attachments.length > 1 ? "s" : ""}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <ChevronRight size={16} className={`text-[var(--text-faint)] shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+            </button>
+
+            {/* Expanded content */}
+            {isExpanded && (
+              <div className="px-4 pb-4 space-y-4 border-t border-[var(--border)]">
+                {report.notes && (
+                  <div className="pt-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">Notes</p>
+                    <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{report.notes}</p>
+                  </div>
+                )}
+
+                {report.attachments.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-2">Attachments</p>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {report.attachments.map((att, idx) => (
+                        isImage(att.type) ? (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setLightboxUrl(att.url)}
+                            className="relative rounded-xl overflow-hidden border border-[var(--border)] aspect-square group"
+                          >
+                            <img
+                              src={att.url}
+                              alt={att.name}
+                              className="w-full h-full object-cover group-hover:opacity-90 transition"
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition" />
+                            <p className="absolute bottom-0 left-0 right-0 bg-black/50 px-2 py-1 text-[9px] text-white truncate">{att.name}</p>
+                          </button>
+                        ) : (
+                          <a
+                            key={idx}
+                            href={att.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-3 hover:border-[var(--accent-pink)] transition group"
+                          >
+                            <FileCheck size={18} className="text-[var(--accent-yellow)] shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-pink)]">{att.name}</p>
+                              <p className="text-[10px] text-[var(--text-faint)]">{formatBytes(att.size)}</p>
+                            </div>
+                          </a>
+                        )
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(report)}
+                    disabled={deletingId === report.id}
+                    className="flex items-center gap-1.5 rounded-xl border border-[var(--danger-soft)] px-3 py-2 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)] transition disabled:opacity-50"
+                  >
+                    {deletingId === report.id ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={13} />
+                    )}
+                    Delete Report
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition"
+          >
+            <X size={18} />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Preview"
+            className="max-h-[90vh] max-w-full rounded-2xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main ProfileView ───────────────────────────────────────
+
 export function ProfileView({ userId, userName, onNameChange, onSignOut }: ProfileViewProps) {
   const { theme, setTheme } = useTheme();
   const [profile, setProfile] = useState<FitnessProfile | null>(null);
@@ -85,6 +585,7 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [activeTab, setActiveTab] = useState<ProfileTab>("profile");
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +596,6 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
         if (!cancelled) {
           setProfile(p);
           if (!p) {
-            // New user — go straight to setup
             setDraft({ ...EMPTY_PROFILE, name: userName });
             setEditing(true);
             setStep("personal");
@@ -113,7 +613,6 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
     return () => { cancelled = true; };
   }, [userId, userName]);
 
-  // Fetch the latest logged weight from routines (live source of truth for BMI/TDEE)
   useEffect(() => {
     let cancelled = false;
     async function fetchLiveWeight() {
@@ -125,7 +624,7 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
           setLiveWeightKg(entries[entries.length - 1].value);
         }
       } catch {
-        // non-critical — silently fall back to profile.weightKg
+        // non-critical
       }
     }
     void fetchLiveWeight();
@@ -195,7 +694,7 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
     );
   }
 
-  // ── Profile Setup Wizard ───────────────────────────────
+  // ── Profile Setup Wizard ───────────────────────────────────────
   if (editing) {
     const stepIdx = STEPS.indexOf(step);
 
@@ -236,28 +735,12 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
 
         {/* Step Content */}
         <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-sm">
-          {step === "personal" && (
-            <StepPersonal draft={draft} update={update} />
-          )}
-          {step === "body" && (
-            <StepBody draft={draft} update={update} />
-          )}
-          {step === "goals" && (
-            <StepGoals draft={draft} update={update} />
-          )}
-          {step === "lifestyle" && (
-            <StepLifestyle draft={draft} update={update} />
-          )}
-          {step === "health" && (
-            <StepHealth
-              draft={draft}
-              update={update}
-              toggleCondition={toggleCondition}
-            />
-          )}
-          {step === "done" && (
-            <StepSummary draft={draft} />
-          )}
+          {step === "personal" && <StepPersonal draft={draft} update={update} />}
+          {step === "body" && <StepBody draft={draft} update={update} />}
+          {step === "goals" && <StepGoals draft={draft} update={update} />}
+          {step === "lifestyle" && <StepLifestyle draft={draft} update={update} />}
+          {step === "health" && <StepHealth draft={draft} update={update} toggleCondition={toggleCondition} />}
+          {step === "done" && <StepSummary draft={draft} />}
 
           {error && (
             <div className="mt-4 flex items-center gap-2 rounded-xl bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
@@ -391,91 +874,126 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
         </div>
       </div>
 
-      {/* BMI Card */}
-      {bmi && bmiCat && (
-        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <Scale size={18} className="text-[var(--accent-pink)]" />
-            <h3 className="font-bold text-[var(--text-primary)]">Body Metrics</h3>
-            {liveWeightKg && liveWeightKg !== profile.weightKg && (
-              <span className="ml-auto text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[var(--accent-blue-soft)] text-[var(--accent-blue)]">
-                live weight
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <BMIBlock label="BMI" value={bmi.toFixed(1)} sub={bmiCat.label} subColor={bmiCat.color} />
-            <BMIBlock label="Height" value={`${profile.heightCm}`} sub="cm" />
-            <BMIBlock label="Weight" value={`${effectiveWeightKg}`} sub="kg" />
-            <BMIBlock label="Target" value={profile.targetWeightKg ? `${profile.targetWeightKg}` : "—"} sub="kg" />
-          </div>
-          {/* BMI bar */}
-          <div className="mt-4 space-y-1">
-            <div className="relative h-3 rounded-full overflow-hidden" style={{
-              background: "linear-gradient(to right, var(--accent-blue) 0%, var(--success) 30%, var(--warning) 60%, var(--danger) 100%)"
-            }}>
-              <div
-                className="absolute top-0 h-full w-1 bg-[var(--bg-elevated)] rounded-full shadow"
-                style={{ left: `${Math.min(100, Math.max(0, ((bmi - 10) / 30) * 100))}%`, transform: "translateX(-50%)" }}
-              />
-            </div>
-            <div className="flex justify-between text-[10px] text-[var(--text-muted)]">
-              <span>Underweight</span><span>Normal</span><span>Overweight</span><span>Obese</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Calorie info */}
-      {tdee && (
-        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <Activity size={18} className="text-[var(--accent-yellow)]" />
-            <h3 className="font-bold text-[var(--text-primary)]">Daily Energy</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 sm:col-span-1 rounded-2xl bg-[var(--accent-pink)] p-4 text-white">
-              <p className="text-xs text-[var(--text-faint)]">Maintenance Calories</p>
-              <p className="text-3xl font-bold mt-1">{Math.round(tdee)}</p>
-              <p className="text-xs text-[var(--text-faint)]">kcal / day</p>
-            </div>
-            <BMIBlock label="Basal Rate" value={`${Math.round(bmr!)}`} sub="kcal BMR" />
-          </div>
-        </div>
-      )}
-
-      {/* Goals grid */}
-      <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
-        <div className="flex items-center gap-2 mb-4">
-          <Target size={18} className="text-[var(--accent-pink)]" />
-          <h3 className="font-bold text-[var(--text-primary)]">Goals & Lifestyle</h3>
-        </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <GoalItem icon={<Target size={15} />} label="Goal" value={profile.fitnessGoal?.replace(/_/g, " ") || "—"} />
-          <GoalItem icon={<Activity size={15} />} label="Workouts/week" value={profile.weeklyWorkoutDays ? `${profile.weeklyWorkoutDays} days` : "—"} />
-          <GoalItem icon={<Activity size={15} />} label="Daily steps" value={profile.dailyStepsGoal ? profile.dailyStepsGoal.toLocaleString() : "—"} />
-          <GoalItem icon={<Droplets size={15} />} label="Water" value={profile.dailyWaterLiters ? `${profile.dailyWaterLiters} L` : "—"} />
-          <GoalItem icon={<Moon size={15} />} label="Sleep" value={profile.sleepHoursGoal ? `${profile.sleepHoursGoal}h` : "—"} />
-          <GoalItem icon={<Utensils size={15} />} label="Diet" value={profile.dietaryPreference || "—"} />
-        </div>
+      {/* ── Tabs ── */}
+      <div className="flex rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-1 gap-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab("profile")}
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition ${
+            activeTab === "profile"
+              ? "bg-[var(--accent-pink)] text-white shadow-sm"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          }`}
+        >
+          <User size={15} />
+          Profile
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("medical")}
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition ${
+            activeTab === "medical"
+              ? "bg-[var(--accent-pink)] text-white shadow-sm"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          }`}
+        >
+          <FileText size={15} />
+          Medical Report
+        </button>
       </div>
 
-      {/* Health conditions */}
-      {profile.healthConditions && profile.healthConditions.length > 0 && (
-        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <Heart size={18} className="text-[var(--danger)]" />
-            <h3 className="font-bold text-[var(--text-primary)]">Health Conditions</h3>
+      {/* ── Tab Content ── */}
+      {activeTab === "profile" && (
+        <>
+          {/* BMI Card */}
+          {bmi && bmiCat && (
+            <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <Scale size={18} className="text-[var(--accent-pink)]" />
+                <h3 className="font-bold text-[var(--text-primary)]">Body Metrics</h3>
+                {liveWeightKg && liveWeightKg !== profile.weightKg && (
+                  <span className="ml-auto text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[var(--accent-blue-soft)] text-[var(--accent-blue)]">
+                    live weight
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <BMIBlock label="BMI" value={bmi.toFixed(1)} sub={bmiCat.label} subColor={bmiCat.color} />
+                <BMIBlock label="Height" value={`${profile.heightCm}`} sub="cm" />
+                <BMIBlock label="Weight" value={`${effectiveWeightKg}`} sub="kg" />
+                <BMIBlock label="Target" value={profile.targetWeightKg ? `${profile.targetWeightKg}` : "—"} sub="kg" />
+              </div>
+              {/* BMI bar */}
+              <div className="mt-4 space-y-1">
+                <div className="relative h-3 rounded-full overflow-hidden" style={{
+                  background: "linear-gradient(to right, var(--accent-blue) 0%, var(--success) 30%, var(--warning) 60%, var(--danger) 100%)"
+                }}>
+                  <div
+                    className="absolute top-0 h-full w-1 bg-[var(--bg-elevated)] rounded-full shadow"
+                    style={{ left: `${Math.min(100, Math.max(0, ((bmi - 10) / 30) * 100))}%`, transform: "translateX(-50%)" }}
+                  />
+                </div>
+                <div className="flex justify-between text-[10px] text-[var(--text-muted)]">
+                  <span>Underweight</span><span>Normal</span><span>Overweight</span><span>Obese</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Calorie info */}
+          {tdee && (
+            <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <Activity size={18} className="text-[var(--accent-yellow)]" />
+                <h3 className="font-bold text-[var(--text-primary)]">Daily Energy</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 sm:col-span-1 rounded-2xl bg-[var(--accent-pink)] p-4 text-white">
+                  <p className="text-xs text-[var(--text-faint)]">Maintenance Calories</p>
+                  <p className="text-3xl font-bold mt-1">{Math.round(tdee)}</p>
+                  <p className="text-xs text-[var(--text-faint)]">kcal / day</p>
+                </div>
+                <BMIBlock label="Basal Rate" value={`${Math.round(bmr!)}`} sub="kcal BMR" />
+              </div>
+            </div>
+          )}
+
+          {/* Goals grid */}
+          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <Target size={18} className="text-[var(--accent-pink)]" />
+              <h3 className="font-bold text-[var(--text-primary)]">Goals & Lifestyle</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <GoalItem icon={<Target size={15} />} label="Goal" value={profile.fitnessGoal?.replace(/_/g, " ") || "—"} />
+              <GoalItem icon={<Activity size={15} />} label="Workouts/week" value={profile.weeklyWorkoutDays ? `${profile.weeklyWorkoutDays} days` : "—"} />
+              <GoalItem icon={<Activity size={15} />} label="Daily steps" value={profile.dailyStepsGoal ? profile.dailyStepsGoal.toLocaleString() : "—"} />
+              <GoalItem icon={<Droplets size={15} />} label="Water" value={profile.dailyWaterLiters ? `${profile.dailyWaterLiters} L` : "—"} />
+              <GoalItem icon={<Moon size={15} />} label="Sleep" value={profile.sleepHoursGoal ? `${profile.sleepHoursGoal}h` : "—"} />
+              <GoalItem icon={<Utensils size={15} />} label="Diet" value={profile.dietaryPreference || "—"} />
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {profile.healthConditions.map((c) => (
-              <span key={c} className="rounded-full bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-3 py-1 text-xs font-semibold text-[var(--danger)]">
-                {c}
-              </span>
-            ))}
-          </div>
-        </div>
+
+          {/* Health conditions */}
+          {profile.healthConditions && profile.healthConditions.length > 0 && (
+            <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-3">
+                <Heart size={18} className="text-[var(--danger)]" />
+                <h3 className="font-bold text-[var(--text-primary)]">Health Conditions</h3>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {profile.healthConditions.map((c) => (
+                  <span key={c} className="rounded-full bg-[var(--danger-soft)] border border-[var(--danger-soft)] px-3 py-1 text-xs font-semibold text-[var(--danger)]">
+                    {c}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
+
+      {activeTab === "medical" && <MedicalReportTab userId={userId} />}
 
       {/* Sign Out */}
       {onSignOut && (

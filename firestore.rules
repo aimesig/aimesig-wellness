@@ -15,6 +15,9 @@ service cloud.firestore {
       match /analyticsCards/{cardId} {
         allow read, write: if isOwner(userId);
       }
+      match /medicalReports/{reportId} {
+        allow read, write: if isOwner(userId);
+      }
     }
     function isOwner(userId) {
       return request.auth != null
