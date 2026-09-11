@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   User,
   ChevronRight,
@@ -24,6 +24,10 @@ import {
   Image as ImageIcon,
   FileCheck,
   ClipboardList,
+  GitBranch,
+  ChevronDown,
+  CalendarDays,
+  CircleDot,
 } from "lucide-react";
 import {
   getProfile,
@@ -109,7 +113,7 @@ function isImage(mime: string) {
 
 interface MedicalReportTabProps { userId: string; }
 
-type MedicalSection = "checkups" | "issues";
+type MedicalSection = "checkups" | "issues" | "flowchart";
 
 const CHECKUP_META: Record<CheckupCategory, { label: string; emoji: string }> = {
   lab: { label: "Lab Report", emoji: "🧪" },
@@ -124,6 +128,9 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
   const [issues, setIssues] = useState<HealthIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedYears, setExpandedYears] = useState<Set<number>>(new Set());
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+  const [flowTarget, setFlowTarget] = useState<{ type: "issue" | "checkup"; id: string } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [form, setForm] = useState<"checkup" | "issue" | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -148,6 +155,22 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
     const stopIssues = subscribeHealthIssues(userId, (data) => { if (active) { setIssues(data); setLoading(false); } });
     return () => { active = false; stopCheckups(); stopIssues(); };
   }, [userId]);
+
+  useEffect(() => {
+    if (!flowTarget) return;
+    const target = document.getElementById(`medical-${flowTarget.type}-${flowTarget.id}`);
+    if (target) {
+      window.setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "center" }), 30);
+    }
+    setFlowTarget(null);
+  }, [flowTarget]);
+
+  function openFlowTarget(type: "issue" | "checkup", id: string) {
+    setForm(null);
+    setSection(type === "issue" ? "issues" : "checkups");
+    setExpandedId(id);
+    setFlowTarget({ type, id });
+  }
 
   function clearForm() {
     setTitle(""); setCategory("lab"); setDate(new Date().toISOString().split("T")[0]); setNotes("");
@@ -269,12 +292,15 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
           </div>
           <FileCheck size={20} className="text-[var(--accent-pink)] shrink-0" />
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
           <button type="button" onClick={() => setSection("checkups")} className={`rounded-2xl px-3 py-3 text-left transition ${section === "checkups" ? "bg-[var(--accent-pink)] text-white" : "bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)]"}`}>
             <div className="text-sm font-bold">Health Checkup</div><div className={`text-[10px] mt-0.5 ${section === "checkups" ? "text-white/80" : "text-[var(--text-faint)]"}`}>{checkups.length} records · labs · prescriptions · bills</div>
           </button>
           <button type="button" onClick={() => setSection("issues")} className={`rounded-2xl px-3 py-3 text-left transition ${section === "issues" ? "bg-[var(--accent-pink)] text-white" : "bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)]"}`}>
-            <div className="text-sm font-bold">Health Issues</div><div className={`text-[10px] mt-0.5 ${section === "issues" ? "text-white/80" : "text-[var(--text-faint)]"}`}>{issues.length} active/history records · linked evidence</div>
+            <div className="text-sm font-bold">Health Issues</div><div className={`text-[10px] mt-0.5 ${section === "issues" ? "text-white/80" : "text-[var(--text-faint)]"}`}>{issues.length} records · linked evidence</div>
+          </button>
+          <button type="button" onClick={() => setSection("flowchart")} className={`rounded-2xl px-3 py-3 text-left transition ${section === "flowchart" ? "bg-[var(--accent-pink)] text-white" : "bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)]"}`}>
+            <div className="flex items-center gap-2 text-sm font-bold"><GitBranch size={16}/> Flowchart</div><div className={`text-[10px] mt-0.5 ${section === "flowchart" ? "text-white/80" : "text-[var(--text-faint)]"}`}>Timeline of your complete health story</div>
           </button>
         </div>
       </div>
@@ -316,17 +342,121 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
         <div className="space-y-3">
           <div className="flex items-center justify-between"><div><h4 className="font-bold text-[var(--text-primary)]">Health Checkup</h4><p className="text-xs text-[var(--text-secondary)]">Lab reports, prescriptions, bills and other medical records.</p></div><button type="button" onClick={() => openNewCheckup()} className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-pink)] px-3 py-2 text-xs font-semibold text-white"><Plus size={14}/> Add Checkup</button></div>
           {checkups.length === 0 && !form && <EmptyMedical title="No health checkups yet" text="Add a lab report, prescription, bill or other medical document." onClick={() => openNewCheckup()} />}
-          {checkups.map((c) => <CheckupCard key={c.id} item={c} issues={issues.filter((i) => (c.healthIssueIds?.length ? c.healthIssueIds : (c.healthIssueId ? [c.healthIssueId] : [])).includes(i.id || ""))} expanded={expandedId === c.id} onExpand={() => setExpandedId(expandedId === c.id ? null : (c.id || null))} onEdit={() => openEditCheckup(c)} onDelete={() => void removeCheckup(c)} onPreview={setLightboxUrl} />)}
+          {checkups.map((c) => <div id={`medical-checkup-${c.id}`} key={c.id}><CheckupCard item={c} issues={issues.filter((i) => (c.healthIssueIds?.length ? c.healthIssueIds : (c.healthIssueId ? [c.healthIssueId] : [])).includes(i.id || ""))} expanded={expandedId === c.id} onExpand={() => setExpandedId(expandedId === c.id ? null : (c.id || null))} onEdit={() => openEditCheckup(c)} onDelete={() => void removeCheckup(c)} onPreview={setLightboxUrl} /></div>)}
         </div>
-      ) : (
+      ) : section === "issues" ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between"><div><h4 className="font-bold text-[var(--text-primary)]">Health Issues</h4><p className="text-xs text-[var(--text-secondary)]">Each issue becomes a timeline with its supporting checkup evidence.</p></div><button type="button" onClick={openNewIssue} className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-pink)] px-3 py-2 text-xs font-semibold text-white"><Plus size={14}/> Add Issue</button></div>
           {issues.length === 0 && !form && <EmptyMedical title="No health issues yet" text="Create an issue, then add checkups directly from it." onClick={openNewIssue} />}
-          {issues.map((i) => { const linked = checkups.filter((c) => (c.healthIssueIds?.length ? c.healthIssueIds : (c.healthIssueId ? [c.healthIssueId] : [])).includes(i.id || "")); return <IssueCard key={i.id} item={i} linked={linked} expanded={expandedId === i.id} onExpand={() => setExpandedId(expandedId === i.id ? null : (i.id || null))} onEdit={() => openEditIssue(i)} onDelete={() => void removeIssue(i)} onPreview={setLightboxUrl} onAddCheckup={() => openNewCheckup(i.id || null)} />; })}
+          {issues.map((i) => { const linked = checkups.filter((c) => (c.healthIssueIds?.length ? c.healthIssueIds : (c.healthIssueId ? [c.healthIssueId] : [])).includes(i.id || "")); return <div id={`medical-issue-${i.id}`} key={i.id}><IssueCard item={i} linked={linked} expanded={expandedId === i.id} onExpand={() => setExpandedId(expandedId === i.id ? null : (i.id || null))} onEdit={() => openEditIssue(i)} onDelete={() => void removeIssue(i)} onPreview={setLightboxUrl} onAddCheckup={() => openNewCheckup(i.id || null)} /></div>; })}
         </div>
+      ) : (
+        <HealthFlowchart checkups={checkups} issues={issues} expandedYears={expandedYears} expandedMonths={expandedMonths} setExpandedYears={setExpandedYears} setExpandedMonths={setExpandedMonths} onOpenTarget={openFlowTarget} />
       )}
 
       {lightboxUrl && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setLightboxUrl(null)}><button type="button" onClick={() => setLightboxUrl(null)} className="absolute top-4 right-4 text-white"><X size={22}/></button><img src={lightboxUrl} alt="Preview" className="max-h-[90vh] max-w-full rounded-2xl object-contain" onClick={(e) => e.stopPropagation()} /></div>}
+    </div>
+  );
+}
+
+
+function HealthFlowchart({
+  checkups,
+  issues,
+  expandedYears,
+  expandedMonths,
+  setExpandedYears,
+  setExpandedMonths,
+  onOpenTarget,
+}: {
+  checkups: HealthCheckup[];
+  issues: HealthIssue[];
+  expandedYears: Set<number>;
+  expandedMonths: Set<string>;
+  setExpandedYears: Dispatch<SetStateAction<Set<number>>>;
+  setExpandedMonths: Dispatch<SetStateAction<Set<string>>>;
+  onOpenTarget: (type: "issue" | "checkup", id: string) => void;
+}) {
+  const allDates = [...issues.map((x) => x.date), ...checkups.map((x) => x.date)].filter(Boolean);
+  const years = Array.from(new Set(allDates.map((d) => Number(d.slice(0, 4))))).filter(Number.isFinite).sort((a, b) => b - a);
+  const fallbackYear = new Date().getFullYear();
+  if (!years.length) years.push(fallbackYear);
+
+  function toggleYear(year: number) {
+    setExpandedYears((prev) => {
+      const next = new Set(prev);
+      if (next.has(year)) next.delete(year); else next.add(year);
+      return next;
+    });
+  }
+  function toggleMonth(key: string) {
+    setExpandedMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  return (
+    <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4 sm:p-6 shadow-sm overflow-hidden">
+      <div className="flex items-start justify-between gap-3 mb-6">
+        <div>
+          <div className="flex items-center gap-2"><GitBranch size={20} className="text-[var(--accent-pink)]"/><h4 className="font-bold text-[var(--text-primary)] text-base">Health Journey Flowchart</h4></div>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">Explore years → months → health issues & checkups. Click any final node to open the exact record.</p>
+        </div>
+        <div className="shrink-0 rounded-full bg-[var(--accent-pink-soft)] px-3 py-1.5 text-[10px] font-bold text-[var(--accent-pink)]">{issues.length + checkups.length} records</div>
+      </div>
+
+      <div className="relative pl-2 sm:pl-4">
+        {years.map((year) => {
+          const yearOpen = expandedYears.has(year);
+          const yearCheckups = checkups.filter((x) => x.date.startsWith(String(year)));
+          const yearIssueIdsFromCheckups = new Set(yearCheckups.flatMap((c) => c.healthIssueIds?.length ? c.healthIssueIds : (c.healthIssueId ? [c.healthIssueId] : [])));
+          // Show an issue in a year not only when the issue itself was created/dated in that year,
+          // but also when any checkup in that year refers to the issue.
+          const yearIssues = issues.filter((x) => x.date.startsWith(String(year)) || yearIssueIdsFromCheckups.has(x.id || ""));
+          const monthNums = Array.from(new Set([...yearIssues.filter((x) => x.date.startsWith(String(year))).map((x) => Number(x.date.slice(5, 7))), ...yearCheckups.map((x) => Number(x.date.slice(5, 7)))])).filter(Number.isFinite).sort((a, b) => a - b);
+          return (
+            <div key={year} className="relative pl-8 sm:pl-10 pb-5 last:pb-0">
+              <div className="absolute left-3 sm:left-5 top-5 bottom-0 w-px bg-[var(--border)] last:hidden" />
+              <div className="absolute left-0 top-0 h-7 w-7 sm:h-10 sm:w-10 sm:left-0 rounded-full border-4 border-[var(--bg-elevated)] bg-[var(--accent-pink)] shadow-md flex items-center justify-center z-10">
+                <CalendarDays size={14} className="text-white sm:hidden"/><CalendarDays size={17} className="text-white hidden sm:block"/>
+              </div>
+              <button type="button" onClick={() => toggleYear(year)} className="w-full text-left rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 hover:border-[var(--accent-pink)] transition">
+                <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="text-lg font-black text-[var(--text-primary)]">{year}</div><div className="text-[10px] text-[var(--text-faint)]">{yearIssues.length} issues · {yearCheckups.length} checkups · {monthNums.length} active months</div>{yearIssues.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5"><span className="text-[9px] font-bold uppercase tracking-wide text-[var(--danger)] mr-0.5">Issues</span>{yearIssues.slice(0, 5).map((item) => <span key={item.id} className="rounded-full border border-[var(--danger-soft)] bg-[var(--danger-soft)]/30 px-2 py-0.5 text-[9px] font-semibold text-[var(--danger)]">{item.title}</span>)}{yearIssues.length > 5 && <span className="rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-[9px] font-semibold text-[var(--text-faint)]">+{yearIssues.length - 5} more</span>}</div>}</div><ChevronDown size={18} className={`mt-1 shrink-0 transition-transform ${yearOpen ? "rotate-180" : ""}`}/></div>
+              </button>
+
+              {yearOpen && <div className="mt-3 ml-1 sm:ml-3 space-y-3">
+                {monthNums.map((month) => {
+                  const key = `${year}-${String(month).padStart(2, "0")}`;
+                  const monthOpen = expandedMonths.has(key);
+                  const monthCheckups = yearCheckups.filter((x) => Number(x.date.slice(5, 7)) === month);
+                  const monthIssueIdsFromCheckups = new Set(monthCheckups.flatMap((c) => c.healthIssueIds?.length ? c.healthIssueIds : (c.healthIssueId ? [c.healthIssueId] : [])));
+                  // A checkup can be the evidence for an issue whose own date is in another
+                  // month/year. In that case the issue is still shown in the checkup's month/year.
+                  const monthIssues = issues.filter((x) => (x.date.startsWith(`${year}-${String(month).padStart(2, "0")}`)) || monthIssueIdsFromCheckups.has(x.id || ""));
+                  const monthName = new Date(year, month - 1, 1).toLocaleString(undefined, { month: "long" });
+                  return (
+                    <div key={key} className="relative pl-7 sm:pl-9">
+                      <div className="absolute left-2 sm:left-4 top-5 bottom-0 w-px bg-[var(--border)]" />
+                      <div className="absolute left-0 top-3 h-5 w-5 rounded-full border-2 border-[var(--bg-elevated)] bg-[var(--accent-blue)] z-10 flex items-center justify-center"><CircleDot size={9} className="text-white"/></div>
+                      <button type="button" onClick={() => toggleMonth(key)} className="w-full text-left rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3.5 py-2.5 hover:border-[var(--accent-blue)] transition">
+                        <div className="flex items-start gap-2"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-[var(--text-primary)]">{monthName}</div><div className="text-[9px] text-[var(--text-faint)]">{monthIssues.length} issues · {monthCheckups.length} checkups</div>{monthIssues.length > 0 && <div className="mt-1.5 flex flex-wrap gap-1"><span className="text-[8px] font-bold uppercase tracking-wide text-[var(--danger)] mr-0.5">Issues</span>{monthIssues.slice(0, 4).map((item) => <span key={item.id} className="rounded-full border border-[var(--danger-soft)] bg-[var(--danger-soft)]/30 px-1.5 py-0.5 text-[8px] font-semibold text-[var(--danger)]">{item.title}</span>)}{monthIssues.length > 4 && <span className="rounded-full bg-[var(--bg-card)] px-1.5 py-0.5 text-[8px] font-semibold text-[var(--text-faint)]">+{monthIssues.length - 4}</span>}</div>}</div><ChevronDown size={15} className={`mt-0.5 shrink-0 transition-transform ${monthOpen ? "rotate-180" : ""}`}/></div>
+                      </button>
+                      {monthOpen && <div className="mt-3 grid grid-cols-1 xl:grid-cols-2 gap-3 ml-1 sm:ml-2">
+                        {monthIssues.length > 0 && <div className="rounded-2xl border border-[var(--danger-soft)] bg-[var(--danger-soft)]/20 p-3"><div className="text-[10px] font-black uppercase tracking-wider text-[var(--danger)] mb-2">Health Issues</div><div className="space-y-2">{monthIssues.map((item) => <button type="button" key={item.id} onClick={() => item.id && onOpenTarget("issue", item.id)} className="w-full text-left rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5 hover:border-[var(--danger)] transition"><div className="flex items-center gap-2"><Heart size={14} className="text-[var(--danger)]"/><span className="min-w-0 flex-1 truncate text-xs font-bold text-[var(--text-primary)]">{item.title}</span><span className="text-[9px] text-[var(--text-faint)]">{item.date}</span></div></button>)}</div></div>}
+                        {monthCheckups.length > 0 && <div className="rounded-2xl border border-[var(--accent-pink-soft)] bg-[var(--accent-pink-soft)]/30 p-3"><div className="text-[10px] font-black uppercase tracking-wider text-[var(--accent-pink)] mb-2">Health Checkups</div><div className="space-y-2">{monthCheckups.map((item) => { const meta = CHECKUP_META[item.category] || CHECKUP_META.other; return <button type="button" key={item.id} onClick={() => item.id && onOpenTarget("checkup", item.id)} className="w-full text-left rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5 hover:border-[var(--accent-pink)] transition"><div className="flex items-center gap-2"><span className="text-sm">{meta.emoji}</span><span className="min-w-0 flex-1 truncate text-xs font-bold text-[var(--text-primary)]">{item.title}</span><span className="text-[9px] text-[var(--text-faint)]">{item.date}</span></div></button>; })}</div></div>}
+                        {!monthIssues.length && !monthCheckups.length && <p className="text-xs text-[var(--text-faint)]">No records.</p>}
+                      </div>}
+                    </div>
+                  );
+                })}
+                {!monthNums.length && <div className="rounded-2xl border border-dashed border-[var(--border)] p-4 text-xs text-[var(--text-faint)]">No health records in this year.</div>}
+              </div>}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
