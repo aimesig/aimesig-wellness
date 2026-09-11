@@ -397,11 +397,21 @@ export function CalendarView({ userId }: CalendarViewProps) {
 
       {/* Year Heatmap */}
       <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm sm:p-6">
-        <h3 className="font-bold text-[var(--text-primary)] mb-4">Activity this year</h3>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-[var(--text-primary)]">Activity this year</h3>
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">
+              Daily routine completion over the last 12 months
+            </p>
+          </div>
+          <span className="shrink-0 rounded-full bg-[var(--accent-pink-soft)] px-2.5 py-1 text-[10px] font-semibold text-[var(--accent-pink)]">
+            {today.getFullYear()}
+          </span>
+        </div>
         <div className="overflow-x-auto pb-2">
-          <div className="flex gap-[3px]" style={{ minWidth: "max-content" }}>
+          <div className="flex gap-[4px]" style={{ minWidth: "max-content" }}>
             {heatmapWeeks.map((week, wi) => (
-              <div key={wi} className="flex flex-col gap-[3px]">
+              <div key={wi} className="flex flex-col gap-[4px]">
                 {week.map(({ key, date }) => {
                   const prog = yearProgressMap.get(key);
                   const isFut = key > todayKey;
@@ -410,7 +420,7 @@ export function CalendarView({ userId }: CalendarViewProps) {
                     <span
                       key={key}
                       title={`${date.toLocaleDateString("en", { month: "short", day: "numeric" })}${prog ? ` — ${prog.completedCount}/${prog.totalCount} (${pct}%)` : ""}`}
-                      className="h-3 w-3 rounded-sm cursor-default"
+                      className="h-3.5 w-3.5 rounded-sm border border-[var(--border)] cursor-default"
                       style={{ backgroundColor: isFut ? "transparent" : prog ? getProgressColorStyle(pct) : "var(--heat-0)" }}
                     />
                   );

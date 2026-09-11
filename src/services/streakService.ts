@@ -122,14 +122,19 @@ export async function getStreakData(userId: string): Promise<StreakData> {
   oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
   const logsRef = collection(db, "users", userId, "routineLogs");
+  // Query only by date. Filtering status in memory avoids requiring a
+  // Firestore composite index on (date, status), which otherwise makes the
+  // whole CalendarView Promise.all() fail and hides the streak cards and
+  // "Activity this year" heatmap.
   const logsQuery = query(
     logsRef,
     where("date", ">=", Timestamp.fromDate(oneYearAgo)),
-    where("status", "==", "yes"),
   );
 
   const snapshot = await getDocs(logsQuery);
-  const logs = snapshot.docs.map((d) => d.data() as RoutineLog);
+  const logs = snapshot.docs
+    .map((d) => d.data() as RoutineLog)
+    .filter((log) => log.status === "yes");
 
   // Build a set of active dates (days where at least one routine was
   // completed — one "yes" log is enough, other routines that day can be
