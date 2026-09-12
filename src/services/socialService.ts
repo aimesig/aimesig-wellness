@@ -20,6 +20,7 @@ export interface PublicProfile {
   uid: string;
   username: string;
   displayName: string;
+  displayNameLower?: string;
 }
 
 export interface FriendRequest {
@@ -41,6 +42,7 @@ export async function syncPublicProfile(userId: string, username: string, displa
       uid: userId,
       username: username.trim().toLowerCase().replace(/^@+/, ""),
       displayName: displayName.trim() || "AimeSig User",
+      displayNameLower: (displayName.trim() || "AimeSig User").toLowerCase(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
   });
@@ -183,4 +185,126 @@ export async function getFriends(userId: string): Promise<Friend[]> {
 export async function getPublicProfile(userId: string): Promise<PublicProfile | null> {
   const snap = await getDoc(doc(db, "publicProfiles", userId));
   return snap.exists() ? snap.data() as PublicProfile : null;
+}
+
+
+// ============================================================
+// PER-FRIEND SHARING PERMISSIONS
+// ============================================================
+
+export interface FriendSharePermissions {
+  id?: string;
+  ownerId: string;
+  friendId: string;
+  routineCalendar: boolean;
+  analytics: boolean;
+  medicalReportIds: string[];
+  generalDocumentIds: string[];
+  updatedAt?: Timestamp;
+}
+
+function sharePermissionId(ownerId: string, friendId: string): string {
+  return `${ownerId}_${friendId}`;
+}
+
+export async function getFriendSharePermissions(
+  ownerId: string,
+  friendId: string,
+): Promise<FriendSharePermissions> {
+  const snap = await getDoc(
+    doc(db, "sharePermissions", sharePermissionId(ownerId, friendId)),
+  );
+
+  if (!snap.exists()) {
+    return {
+      ownerId,
+      friendId,
+      routineCalendar: false,
+      analytics: false,
+      medicalReportIds: [],
+      generalDocumentIds: [],
+    };
+  }
+
+  const data = snap.data() as Partial<FriendSharePermissions>;
+  return {
+    ownerId,
+    friendId,
+    routineCalendar: Boolean(data.routineCalendar),
+    analytics: Boolean(data.analytics),
+    medicalReportIds: Array.isArray(data.medicalReportIds) ? data.medicalReportIds : [],
+    generalDocumentIds: Array.isArray(data.generalDocumentIds) ? data.generalDocumentIds : [],
+    updatedAt: data.updatedAt,
+    id: snap.id,
+  };
+}
+
+export async function saveFriendSharePermissions(
+  ownerId: string,
+  friendId: string,
+  permissions: Omit<FriendSharePermissions, "id" | "ownerId" | "friendId" | "updatedAt">,
+): Promise<void> {
+  if (ownerId === friendId) {
+    throw new Error("You cannot share your data with yourself.");
+  }
+
+  await runTransaction(db, async (transaction) => {
+    const shareRef = doc(
+      db,
+      "sharePermissions",
+      sharePermissionId(ownerId, friendId),
+    );
+
+    transaction.set(
+      shareRef,
+      {
+        ownerId,
+        friendId,
+        routineCalendar: Boolean(permissions.routineCalendar),
+        analytics: Boolean(permissions.analytics),
+        medicalReportIds: Array.from(new Set(permissions.medicalReportIds.filter(Boolean))),
+        generalDocumentIds: Array.from(new Set(permissions.generalDocumentIds.filter(Boolean))),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  });
+}
+
+export async function revokeFriendSharePermissions(
+  ownerId: string,
+  friendId: string,
+): Promise<void> {
+  await saveFriendSharePermissions(ownerId, friendId, {
+    routineCalendar: false,
+    analytics: false,
+    medicalReportIds: [],
+    generalDocumentIds: [],
+  });
+}
+
+export async function getSharedWithMe(
+  friendId: string,
+): Promise<FriendSharePermissions[]> {
+  const snap = await getDocs(
+    query(
+      collection(db, "sharePermissions"),
+      where("friendId", "==", friendId),
+      limit(100),
+    ),
+  );
+
+  return snap.docs.map((item) => {
+    const data = item.data() as FriendSharePermissions;
+    return {
+      id: item.id,
+      ownerId: data.ownerId,
+      friendId: data.friendId,
+      routineCalendar: Boolean(data.routineCalendar),
+      analytics: Boolean(data.analytics),
+      medicalReportIds: Array.isArray(data.medicalReportIds) ? data.medicalReportIds : [],
+      generalDocumentIds: Array.isArray(data.generalDocumentIds) ? data.generalDocumentIds : [],
+      updatedAt: data.updatedAt,
+    };
+  });
 }

@@ -4,16 +4,28 @@
       "collectionGroup": "routineLogs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "date", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "routineLogs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "routineId", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "ASCENDING" }
+        {
+          "fieldPath": "routineId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],
@@ -22,7 +34,10 @@
       "collectionGroup": "medicalReports",
       "fieldPath": "date",
       "indexes": [
-        { "order": "DESCENDING", "queryScope": "COLLECTION" }
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        }
       ]
     }
   ]

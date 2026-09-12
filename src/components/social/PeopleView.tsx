@@ -1,16 +1,21 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, Search, UserCheck, UserPlus, Users, X, Clock } from "lucide-react";
+import { BarChart3, CalendarDays, Check, FileText, FolderOpen, Search, ShieldCheck, UserCheck, UserPlus, Users, X, Clock, Share2 } from "lucide-react";
 import {
   acceptFriendRequest, cancelFriendRequest, declineFriendRequest, getFriendRequestState,
   getFriendRequests, getFriends, getPublicProfile, searchPeople, sendFriendRequest,
-  type Friend, type FriendRequest, type PublicProfile,
+  type Friend, type FriendRequest, type PublicProfile, type FriendSharePermissions, getFriendSharePermissions,
 } from "../../services/socialService";
+import { getSharedMedicalReports, getSharedGeneralDocuments } from "../../services/shareService";
+import type { GeneralDocument } from "../../services/generalDocumentService";
+import type { HealthCheckup, MedicalReport } from "../../services/medicalReportService";
+import { ShareManager } from "./ShareManager";
 
-export function PeopleView({ userId }: { userId: string }) {
+export function PeopleView({ userId, onOpenShared }: { userId: string; onOpenShared?: (ownerId: string, view: "calendar" | "analytics") => void }) {
   const [term, setTerm] = useState(""); const [results, setResults] = useState<PublicProfile[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]); const [incoming, setIncoming] = useState<FriendRequest[]>([]); const [outgoing, setOutgoing] = useState<FriendRequest[]>([]);
   const [states, setStates] = useState<Record<string,string>>({}); const [loading, setLoading] = useState(false); const [error, setError] = useState("");
   const [viewing, setViewing] = useState<PublicProfile | null>(null);
+  const [sharingWith, setSharingWith] = useState<Friend | null>(null);
   async function refresh() {
     const [f, r] = await Promise.all([getFriends(userId), getFriendRequests(userId)]); setFriends(f); setIncoming(r.incoming); setOutgoing(r.outgoing);
     const ids = new Set([...results.map(x=>x.uid), ...r.incoming.map(x=>x.senderId), ...r.outgoing.map(x=>x.receiverId)]);
@@ -30,24 +35,74 @@ export function PeopleView({ userId }: { userId: string }) {
     </section>
     {incoming.length>0&&<RequestSection title="Friend Requests" icon={<UserPlus size={17}/>} requests={incoming} incoming onAccept={r=>void act(()=>acceptFriendRequest(userId,r.senderId))} onDecline={r=>void act(()=>declineFriendRequest(userId,r.senderId))}/>} 
     {outgoing.length>0&&<RequestSection title="Sent Requests" icon={<Clock size={17}/>} requests={outgoing} onCancel={r=>void act(()=>cancelFriendRequest(userId,r.receiverId))}/>} 
-    <section className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm"><Title icon={<Users size={17}/>} text="Friends" count={friends.length}/>{friends.length?<div className="mt-3 space-y-2">{friends.map(f=><div key={f.uid} className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-3"><Avatar name={f.displayName}/><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[var(--text-primary)]">{f.displayName}</p><p className="truncate text-xs text-[var(--text-secondary)]">@{f.username}</p></div><button type="button" onClick={()=>setViewing(f)} className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]">View Profile</button><span className="hidden sm:flex items-center gap-1 rounded-xl bg-[var(--success-soft)] px-3 py-2 text-xs font-semibold text-[var(--success)]"><UserCheck size={13}/> Friend</span></div>)}</div>:<div className="py-10 text-center text-sm text-[var(--text-secondary)]"><Users size={28} className="mx-auto mb-2 opacity-50"/>No friends yet.</div>}</section>
-    {viewing && <PublicProfileCard person={viewing} onClose={()=>setViewing(null)} />}
+    <section className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm"><Title icon={<Users size={17}/>} text="Friends" count={friends.length}/>{friends.length?<div className="mt-3 space-y-2">{friends.map(f=><div key={f.uid} className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-3"><Avatar name={f.displayName}/><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[var(--text-primary)]">{f.displayName}</p><p className="truncate text-xs text-[var(--text-secondary)]">@{f.username}</p></div><button type="button" onClick={()=>setViewing(f)} className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]">View Profile</button><button type="button" onClick={()=>setSharingWith(f)} className="flex items-center gap-1 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--accent-pink)] hover:bg-[var(--accent-pink-soft)]"><Share2 size={13}/> Share</button><span className="hidden sm:flex items-center gap-1 rounded-xl bg-[var(--success-soft)] px-3 py-2 text-xs font-semibold text-[var(--success)]"><UserCheck size={13}/> Friend</span></div>)}</div>:<div className="py-10 text-center text-sm text-[var(--text-secondary)]"><Users size={28} className="mx-auto mb-2 opacity-50"/>No friends yet.</div>}</section>
+    {viewing && <PublicProfileCard person={viewing} viewerId={userId} onClose={()=>setViewing(null)} onOpenShared={onOpenShared} />}
+    {sharingWith && <ShareManager ownerId={userId} friend={sharingWith} onClose={()=>setSharingWith(null)} />}
   </div>;
 }
 
-function PublicProfileCard({ person, onClose }: { person: PublicProfile; onClose: () => void }) {
+function PublicProfileCard({ person, viewerId, onClose, onOpenShared }: { person: PublicProfile; viewerId: string; onClose: () => void; onOpenShared?: (ownerId: string, view: "calendar" | "analytics") => void }) {
+  const [share, setShare] = useState<FriendSharePermissions | null>(null);
+  const [medical, setMedical] = useState<(HealthCheckup | MedicalReport)[]>([]);
+  const [documents, setDocuments] = useState<GeneralDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    void (async () => {
+      try {
+        const permissions = await getFriendSharePermissions(person.uid, viewerId);
+        if (!active) return;
+        setShare(permissions);
+        const [m, d] = await Promise.all([
+          getSharedMedicalReports(person.uid, permissions.medicalReportIds),
+          getSharedGeneralDocuments(person.uid, permissions.generalDocumentIds),
+        ]);
+        if (!active) return;
+        setMedical(m);
+        setDocuments(d);
+      } catch (e: any) {
+        if (active) setError(e?.message || "Unable to load shared information.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [person.uid, viewerId]);
+
+  const hasShared = Boolean(share && (share.routineCalendar || share.analytics || share.medicalReportIds.length || share.generalDocumentIds.length));
+
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={onClose}>
-    <div className="w-full max-w-sm rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-xl" onMouseDown={e=>e.stopPropagation()}>
+    <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-xl" onMouseDown={e=>e.stopPropagation()}>
       <div className="flex justify-end"><button type="button" onClick={onClose} className="rounded-xl p-2 text-[var(--text-secondary)] hover:bg-[var(--surface-strong)]"><X size={18}/></button></div>
       <div className="flex flex-col items-center text-center">
         <Avatar name={person.displayName}/><h3 className="mt-3 text-xl font-bold text-[var(--text-primary)]">{person.displayName}</h3><p className="text-sm text-[var(--accent-pink)]">@{person.username}</p>
-        <p className="mt-4 text-xs text-[var(--text-secondary)]">This is their public AimeSig profile. Private health records, routines and documents are not shared.</p>
+        <p className="mt-4 text-xs text-[var(--text-secondary)]">This is their public AimeSig profile. Private information is visible only when they explicitly share it with you.</p>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4 text-left">
+        <div className="flex items-center gap-2"><ShieldCheck size={17} className="text-[var(--success)]"/><h4 className="text-sm font-bold text-[var(--text-primary)]">Shared with you</h4></div>
+        {loading ? <p className="mt-3 text-xs text-[var(--text-secondary)]">Checking your access…</p> : error ? <p className="mt-3 text-xs text-[var(--danger)]">{error}</p> : !hasShared ? <p className="mt-3 text-xs text-[var(--text-secondary)]">Nothing private has been shared with you.</p> : <div className="mt-3 space-y-2">
+          {share?.routineCalendar && <AccessItem icon={<CalendarDays size={15}/>} title="Routine Calendar" subtitle="View only" buttonLabel="Open" onClick={() => { onClose(); onOpenShared?.(person.uid, "calendar"); }} />}
+          {share?.analytics && <AccessItem icon={<BarChart3 size={15}/>} title="Analytics" subtitle="View only" buttonLabel="Open" onClick={() => { onClose(); onOpenShared?.(person.uid, "analytics"); }} />}
+          {medical.map(item => <AccessItem key={`m-${item.id}`} icon={<FileText size={15}/>} title={item.title} subtitle={`${item.date} · Medical report · View only`} url={item.attachments?.[0]?.url} />)}
+          {documents.map(item => <AccessItem key={`d-${item.id}`} icon={<FolderOpen size={15}/>} title={item.name} subtitle={`${item.folderName || "General document"} · View only`} url={item.url} />)}
+        </div>}
       </div>
     </div>
   </div>;
 }
+
+function AccessItem({ icon, title, subtitle, url, buttonLabel, onClick }: { icon: ReactNode; title: string; subtitle: string; url?: string; buttonLabel?: string; onClick?: () => void }) {
+  return <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] px-3 py-2.5">
+    <span className="text-[var(--accent-pink)]">{icon}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[var(--text-primary)]">{title}</p><p className="truncate text-xs text-[var(--text-secondary)]">{subtitle}</p></div>{url && <a href={url} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-2 text-xs font-semibold text-[var(--accent-pink)]">View</a>}{onClick && <button type="button" onClick={onClick} className="shrink-0 rounded-lg bg-[var(--accent-pink)] px-2.5 py-2 text-xs font-semibold text-white">{buttonLabel || "Open"}</button>}
+  </div>;
+}
+
 function Title({icon,text,count}:{icon:ReactNode;text:string;count:number}){return <div className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">{icon}{text}<span className="rounded-full bg-[var(--surface-strong)] px-2 py-0.5 text-[10px]">{count}</span></div>}
 function Avatar({name}:{name:string}){return <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-pink-soft)] font-bold text-[var(--accent-pink)]">{name.charAt(0).toUpperCase()}</div>}
 function PersonRow({person,state,onAdd}:{person:PublicProfile;state:string;onAdd:()=>void}){return <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-3"><Avatar name={person.displayName}/><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[var(--text-primary)]">{person.displayName}</p><p className="truncate text-xs text-[var(--text-secondary)]">@{person.username}</p></div>{state==='pending'?<span className="rounded-xl bg-[var(--surface-strong)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)]">Requested</span>:state==='accepted'?<span className="rounded-xl bg-[var(--success-soft)] px-3 py-2 text-xs font-semibold text-[var(--success)]">Friends</span>:state==='incoming'?<span className="rounded-xl bg-[var(--accent-pink-soft)] px-3 py-2 text-xs font-semibold text-[var(--accent-pink)]">Respond below</span>:<button onClick={onAdd} className="flex items-center gap-1 rounded-xl bg-[var(--accent-pink)] px-3 py-2 text-xs font-semibold text-white"><UserPlus size={13}/> Add Friend</button>}</div>}
 function RequestSection({title,icon,requests,incoming,onAccept,onDecline,onCancel}:{title:string;icon:ReactNode;requests:FriendRequest[];incoming?:boolean;onAccept?:(r:FriendRequest)=>void;onDecline?:(r:FriendRequest)=>void;onCancel?:(r:FriendRequest)=>void}){return <section className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm"><Title icon={icon} text={title} count={requests.length}/><div className="mt-3 space-y-2">{requests.map(r=><RequestRow key={r.id} userId={incoming?r.senderId:r.receiverId} incoming={incoming} onAccept={()=>onAccept?.(r)} onDecline={()=>onDecline?.(r)} onCancel={()=>onCancel?.(r)}/>)}</div></section>}
-function RequestRow({userId,incoming,onAccept,onDecline,onCancel}:{userId:string;incoming?:boolean;onAccept?:()=>void;onDecline?:()=>void;onCancel?:()=>void}){const [p,setP]=useState<PublicProfile|null>(null);useEffect(()=>{void getPublicProfile(userId).then(setP).catch(()=>{})},[userId]);if(!p)return null;return <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-3"><Avatar name={p.displayName}/><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[var(--text-primary)]">{p.displayName}</p><p className="truncate text-xs text-[var(--text-secondary)]">@{p.username}</p></div>{incoming?<div className="flex gap-1.5"><button onClick={onAccept} className="rounded-xl bg-[var(--success)] px-3 py-2 text-xs font-semibold text-white"><Check size={13} className="inline mr-1"/>Accept</button><button onClick={onDecline} className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)]"><X size={13} className="inline mr-1"/>Decline</button></div>:<button onClick={onCancel} className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)]">Cancel</button>}</div>}
+function RequestRow({userId,incoming,onAccept,onDecline,onCancel}:{userId:string;incoming?:boolean;onAccept?:()=>void;onDecline?:()=>void;onCancel?:()=>void}){const [p,setP]=useState<PublicProfile|null>(null);const [loading,setLoading]=useState(true);useEffect(()=>{let active=true;setLoading(true);void getPublicProfile(userId).then(profile=>{if(active)setP(profile)}).catch(()=>{if(active)setP(null)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[userId]);const displayName=p?.displayName||(loading?"Loading profile…":"AimeSig User");const username=p?.username?`@${p.username}`:loading?"Loading…":`@${userId.slice(0,8)}`;return <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-3"><Avatar name={displayName}/><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[var(--text-primary)]">{displayName}</p><p className="truncate text-xs text-[var(--text-secondary)]">{username}</p></div>{incoming?<div className="flex gap-1.5"><button onClick={onAccept} className="rounded-xl bg-[var(--success)] px-3 py-2 text-xs font-semibold text-white"><Check size={13} className="inline mr-1"/>Accept</button><button onClick={onDecline} className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)]"><X size={13} className="inline mr-1"/>Decline</button></div>:<button onClick={onCancel} className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)]">Cancel</button>}</div>}

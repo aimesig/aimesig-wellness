@@ -306,7 +306,7 @@ async function deleteAnalyticsCard(userId: string, cardId: string): Promise<void
 
 // ─── main component ─────────────────────────────────────────────────────────
 
-export function RoutineAnalytics({ userId }: { userId: string }) {
+export function RoutineAnalytics({ userId, readOnly = false }: { userId: string; readOnly?: boolean }) {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [cards, setCards] = useState<AnalyticsCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -413,14 +413,14 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
           <h2 className="text-base font-bold text-[var(--text-primary)]">Routine Analytics</h2>
           <p className="text-xs text-[var(--text-secondary)]">Customizable goal tracking per routine</p>
         </div>
-        <button
+        {!readOnly && <button
           type="button"
           onClick={() => setShowAdd((v) => !v)}
           className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-pink)] px-3 py-2 text-xs font-semibold text-white transition hover:opacity-90"
         >
           <Plus size={14} />
           Add card
-        </button>
+        </button>}
       </div>
 
       {/* Add-card form */}
@@ -633,6 +633,7 @@ export function RoutineAnalytics({ userId }: { userId: string }) {
                 allRoutines={routines}
                 onDelete={() => void handleDelete(card.id)}
                 onUpdate={handleUpdate}
+                readOnly={readOnly}
               />
             );
           })}
@@ -651,6 +652,7 @@ function RoutineAnalyticsCard({
   allRoutines,
   onDelete,
   onUpdate,
+  readOnly = false,
 }: {
   card: AnalyticsCard;
   routine: Routine;
@@ -658,6 +660,7 @@ function RoutineAnalyticsCard({
   allRoutines: Routine[];
   onDelete: () => void;
   onUpdate: (updated: AnalyticsCard) => void;
+  readOnly?: boolean;
 }) {
   const [logs, setLogs] = useState<RoutineLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -768,7 +771,7 @@ function RoutineAnalyticsCard({
             )}
           </p>
         </div>
-        <div className="flex items-center gap-1">
+        {!readOnly && <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={openEdit}
@@ -785,11 +788,11 @@ function RoutineAnalyticsCard({
           >
             <Trash2 size={15} />
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* ── Inline edit form ─────────────────────────────────────────────── */}
-      {editing && (
+      {!readOnly && editing && (
         <div className="border-b border-[var(--border)] bg-[var(--bg-base)] px-5 py-4 space-y-3">
           <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Edit card</p>
 

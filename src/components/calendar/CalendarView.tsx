@@ -20,6 +20,7 @@ import type { Routine, RoutineLog } from "../../types/routine";
 
 interface CalendarViewProps {
   userId: string;
+  readOnly?: boolean;
 }
 
 function toDayTimestamp(date: Date): Timestamp {
@@ -84,7 +85,7 @@ function placeholderRoutine(log: RoutineLog): Routine {
   };
 }
 
-export function CalendarView({ userId }: CalendarViewProps) {
+export function CalendarView({ userId, readOnly = false }: CalendarViewProps) {
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [progressMap, setProgressMap] = useState<Map<string, DayProgress>>(new Map());
@@ -370,6 +371,7 @@ export function CalendarView({ userId }: CalendarViewProps) {
                   log={log}
                   isDeleted={isDeleted}
                   onEdit={() => setEditingRoutine(routine)}
+                  readOnly={readOnly}
                 />
               ))}
             </div>
@@ -378,7 +380,7 @@ export function CalendarView({ userId }: CalendarViewProps) {
       )}
 
       {/* Edit panel — slide in when editing */}
-      {editingRoutine && selectedDate && (
+      {!readOnly && editingRoutine && selectedDate && (
         <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-sm sm:p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-[var(--text-primary)]">Edit Log</h3>
@@ -532,7 +534,7 @@ function SmartProgressBar({ progress, isLoading }: SmartProgressBarProps) {
 
 // ─── Day routine row ────────────────────────────────────────────────────────
 
-function DayRoutineRow({ routine, log, isDeleted, onEdit }: { routine: Routine; log: RoutineLog | null; isDeleted: boolean; onEdit: () => void }) {
+function DayRoutineRow({ routine, log, isDeleted, onEdit, readOnly = false }: { routine: Routine; log: RoutineLog | null; isDeleted: boolean; onEdit: () => void; readOnly?: boolean }) {
   const status = log?.status ?? "pending";
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
@@ -593,14 +595,14 @@ function DayRoutineRow({ routine, log, isDeleted, onEdit }: { routine: Routine; 
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <span className={`text-xs font-semibold ${statusStyle.label}`}>{statusStyle.text}</span>
-        <button
+        {!readOnly && <button
           type="button"
           onClick={onEdit}
           className="rounded-lg p-1.5 text-[var(--text-secondary)] hover:bg-[var(--accent-pink-soft)]"
           title="Edit log"
         >
           <Pencil size={14} />
-        </button>
+        </button>}
       </div>
 
       {log?.imageUrl && lightboxOpen && (

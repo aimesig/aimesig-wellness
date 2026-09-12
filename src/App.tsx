@@ -4,6 +4,7 @@ import {
   CalendarDays,
   MessageCircle,
   Users,
+  Share2,
   Check,
   Flame,
   Home,
@@ -30,6 +31,7 @@ import { ImageLightbox } from "./components/ui/ImageLightbox";
 import { RoutineAnalytics } from "./components/analytics/RoutineAnalytics";
 import { ChatbotView } from "./components/analytics/ChatbotView";
 import { PeopleView } from "./components/social/PeopleView";
+import { SharedWithMeView } from "./components/social/SharedWithMeView";
 
 import type { Routine, RoutineLog, RoutineStatus } from "./types/routine";
 import { getRoutines } from "./services/routineService";
@@ -106,13 +108,14 @@ function LoadingScreen() {
 
 // ─── nav ───────────────────────────────────────────────────────────────────
 
-type NavTab = "Home" | "My Routines" | "Chatbot" | "People" | "Calendar" | "Analytics" | "Profile";
+type NavTab = "Home" | "My Routines" | "Chatbot" | "People" | "Shared With Me" | "Calendar" | "Analytics" | "Profile";
 
 const NAV: { label: NavTab; icon: typeof Home }[] = [
   { label: "Home",        icon: Home        },
   { label: "My Routines", icon: BookOpen    },
   { label: "Chatbot",     icon: MessageCircle },
   { label: "People",      icon: Users          },
+  { label: "Shared With Me", icon: Share2       },
   { label: "Calendar",    icon: CalendarDays},
   { label: "Analytics",   icon: BarChart3   },
 ];
@@ -123,6 +126,8 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
   const { logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const [tab, setTab] = useState<NavTab>("Home");
+  const [sharedOwnerId, setSharedOwnerId] = useState<string | null>(null);
+  const [sharedView, setSharedView] = useState<"calendar" | "analytics" | null>(null);
   const [streak, setStreak] = useState<number | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const themeLoaded = useRef(false);
@@ -187,21 +192,28 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
         return (
           <>
             <PageHeader title="People" subtitle="Find people, manage friend requests and view friends" />
-            <PeopleView userId={userId} />
+            <PeopleView userId={userId} onOpenShared={(ownerId, view) => { setSharedOwnerId(ownerId); setSharedView(view); setTab(view === "calendar" ? "Calendar" : "Analytics"); }} />
+          </>
+        );
+      case "Shared With Me":
+        return (
+          <>
+            <PageHeader title="Shared With Me" subtitle="View the information your friends have shared with you" />
+            <SharedWithMeView userId={userId} onOpen={(ownerId, view) => { setSharedOwnerId(ownerId); setSharedView(view); setTab(view === "calendar" ? "Calendar" : "Analytics"); }} />
           </>
         );
       case "Calendar":
         return (
           <>
             <PageHeader title="Calendar" subtitle="Review your history" />
-            <CalendarView userId={userId} />
+            <CalendarView userId={sharedOwnerId && sharedView === "calendar" ? sharedOwnerId : userId} readOnly={Boolean(sharedOwnerId && sharedView === "calendar")} />
           </>
         );
       case "Analytics":
         return (
           <>
             <PageHeader title="Analytics" subtitle="Goal tracking per routine" />
-            <RoutineAnalytics userId={userId} />
+            <RoutineAnalytics userId={sharedOwnerId && sharedView === "analytics" ? sharedOwnerId : userId} readOnly={Boolean(sharedOwnerId && sharedView === "analytics")} />
           </>
         );
       case "Profile":
@@ -233,7 +245,7 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
               label={item.label}
               icon={item.icon}
               active={tab === item.label}
-              onClick={() => setTab(item.label)}
+              onClick={() => { setTab(item.label); if (item.label === "Calendar" || item.label === "Analytics") { setSharedOwnerId(null); setSharedView(null); } }}
             />
           ))}
         </nav>
@@ -287,7 +299,7 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
               label={item.label}
               icon={item.icon}
               active={tab === item.label}
-              onClick={() => setTab(item.label)}
+              onClick={() => { setTab(item.label); if (item.label === "Calendar" || item.label === "Analytics") { setSharedOwnerId(null); setSharedView(null); } }}
             />
           ))}
         </div>
