@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction, type ReactNode } from "react";
 import {
   User,
   ChevronRight,
@@ -27,6 +27,8 @@ import {
   ChevronDown,
   CalendarDays,
   CircleDot,
+  Folder,
+  FolderPlus,
 } from "lucide-react";
 import {
   getProfile,
@@ -56,6 +58,18 @@ import {
   type ReferencedCheckupAttachment,
   setHealthCheckupIssues,
 } from "../../services/medicalReportService";
+import {
+  getGeneralDocuments,
+  ensureDefaultGeneralFolders,
+  createGeneralFolder,
+  uploadGeneralDocument,
+  deleteGeneralDocument,
+  deleteGeneralFolder,
+  moveGeneralDocument,
+  moveGeneralFolder,
+  type GeneralDocument,
+  type GeneralFolder,
+} from "../../services/generalDocumentService";
 
 interface ProfileViewProps {
   userId: string;
@@ -99,7 +113,7 @@ const HEALTH_CONDITIONS_LIST = [
   "Thyroid Disorder", "PCOS", "Arthritis", "Back Pain", "None",
 ];
 
-type ProfileTab = "profile" | "medical";
+type ProfileTab = "profile" | "medical" | "general";
 
 
 function isImage(mime: string) {
@@ -357,6 +371,533 @@ function MedicalReportTab({ userId }: MedicalReportTabProps) {
 }
 
 
+
+function GeneralFolderPicker({
+  value,
+  folders,
+  getLabel,
+  onChange,
+  rootLabel = "All Documents / Root",
+  disabled = false,
+}: {
+  value: string | null;
+  folders: GeneralFolder[];
+  getLabel: (folder: GeneralFolder) => string;
+  onChange: (value: string | null) => void;
+  rootLabel?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = value ? folders.find((folder) => folder.id === value) : undefined;
+  const selectedLabel = selected ? getLabel(selected) : rootLabel;
+
+  const uniqueFolders = Array.from(
+    new Map(
+      folders
+        .filter((folder) => folder.id)
+        .map((folder) => [getLabel(folder).trim().toLowerCase(), folder] as const)
+    ).values()
+  ).sort((a, b) => getLabel(a).localeCompare(getLabel(b)));
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5 text-left text-sm text-[var(--text-primary)] outline-none transition hover:border-[var(--accent-pink)] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <span className="min-w-0 truncate">{selectedLabel}</span>
+        <ChevronDown size={16} className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && !disabled && (
+        <div className="absolute left-0 right-0 top-full z-[70] mt-1 max-h-64 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-1 shadow-2xl">
+          <button
+            type="button"
+            onClick={() => { onChange(null); setOpen(false); }}
+            className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition ${!value ? "bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]" : "text-[var(--text-primary)] hover:bg-[var(--bg-card)]"}`}
+          >
+            {rootLabel}
+          </button>
+          {uniqueFolders.map((folder) => {
+            const isSelected = folder.id === value;
+            return (
+              <button
+                type="button"
+                key={folder.id}
+                onClick={() => { onChange(folder.id || null); setOpen(false); }}
+                className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition ${isSelected ? "bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]" : "text-[var(--text-primary)] hover:bg-[var(--bg-card)] hover:text-[var(--text-primary)]"}`}
+              >
+                <span className="block truncate">{getLabel(folder)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GeneralDocumentsTab({ userId }: { userId: string }) {
+  const [documents, setDocuments] = useState<GeneralDocument[]>([]);
+  const [folders, setFolders] = useState<GeneralFolder[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [documentName, setDocumentName] = useState("");
+  const [uploadFolderId, setUploadFolderId] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<
+    | { kind: "document"; item: GeneralDocument }
+    | { kind: "folder"; item: GeneralFolder }
+    | null
+  >(null);
+  const [moveDestinationId, setMoveDestinationId] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [docs, folderItems] = await Promise.all([
+        getGeneralDocuments(userId),
+        ensureDefaultGeneralFolders(userId),
+      ]);
+      setDocuments(docs);
+      setFolders(folderItems);
+      setError("");
+    } catch (err: any) {
+      setError(err?.message || "Unable to load general documents.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, [userId]);
+
+  function openUpload(file: File | null) {
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      setError(`"${file.name}" is larger than 25 MB.`);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+    setError("");
+    setUploadFile(file);
+    setDocumentName(file.name.replace(/\.[^/.]+$/, ""));
+    setUploadFolderId(selectedFolderId);
+    setProgress(0);
+  }
+
+  function closeUpload() {
+    if (uploading) return;
+    setUploadFile(null);
+    setDocumentName("");
+    setProgress(0);
+    if (inputRef.current) inputRef.current.value = "";
+  }
+
+  async function confirmUpload() {
+    if (!uploadFile) return;
+    if (!documentName.trim()) {
+      setError("Please enter a name for the document.");
+      return;
+    }
+    const folder = folders.find((item) => item.id === uploadFolderId);
+    setUploading(true);
+    setError("");
+    try {
+      await uploadGeneralDocument(
+        userId,
+        uploadFile,
+        documentName,
+        uploadFolderId,
+        folder?.name || null,
+        setProgress,
+      );
+      closeUpload();
+      await load();
+    } catch (err: any) {
+      setError(err?.message || "Unable to upload document.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function addFolder() {
+    const name = newFolderName.trim();
+    if (!name) return;
+    setCreatingFolder(true);
+    setError("");
+    try {
+      // A folder is created inside the currently selected folder.
+      const folder = await createGeneralFolder(userId, name, selectedFolderId);
+      setFolders((items) => [...items, folder]);
+      setSelectedFolderId(folder.id || null);
+      setNewFolderName("");
+    } catch (err: any) {
+      setError(err?.message || "Unable to create folder.");
+    } finally {
+      setCreatingFolder(false);
+    }
+  }
+
+  async function remove(item: GeneralDocument) {
+    if (!item.id || !window.confirm(`Delete "${item.name}"?`)) return;
+    try {
+      await deleteGeneralDocument(userId, item);
+      setDocuments((items) => items.filter((x) => x.id !== item.id));
+    } catch (err: any) {
+      setError(err?.message || "Unable to delete document.");
+    }
+  }
+
+  async function removeFolder(folder: GeneralFolder) {
+    if (!folder.id) return;
+    if (!window.confirm(`Delete folder "${folder.name}"? This only works when the folder is empty.`)) return;
+    try {
+      await deleteGeneralFolder(userId, folder);
+      setFolders((items) => items.filter((x) => x.id !== folder.id));
+      if (selectedFolderId === folder.id) {
+        setSelectedFolderId(folder.parentFolderId || null);
+      }
+    } catch (err: any) {
+      setError(err?.message || "Unable to delete folder.");
+    }
+  }
+
+  function beginMoveDocument(item: GeneralDocument) {
+    setMoveTarget({ kind: "document", item });
+    setMoveDestinationId(item.folderId || null);
+    setError("");
+  }
+
+  function beginMoveFolder(item: GeneralFolder) {
+    setMoveTarget({ kind: "folder", item });
+    setMoveDestinationId(item.parentFolderId || null);
+    setError("");
+  }
+
+  function descendantsOf(folderId: string): Set<string> {
+    const result = new Set<string>();
+    const stack = [folderId];
+    while (stack.length) {
+      const parent = stack.pop()!;
+      folders.forEach((folder) => {
+        if (folder.parentFolderId === parent && folder.id && !result.has(folder.id)) {
+          result.add(folder.id);
+          stack.push(folder.id);
+        }
+      });
+    }
+    return result;
+  }
+
+  async function confirmMove() {
+    if (!moveTarget) return;
+    setMoving(true);
+    setError("");
+    try {
+      if (moveTarget.kind === "document") {
+        const folder = folders.find((item) => item.id === moveDestinationId);
+        await moveGeneralDocument(userId, moveTarget.item.id!, moveDestinationId, folder?.name || null);
+      } else {
+        await moveGeneralFolder(userId, moveTarget.item.id!, moveDestinationId);
+      }
+      setMoveTarget(null);
+      await load();
+    } catch (err: any) {
+      setError(err?.message || "Unable to move item.");
+    } finally {
+      setMoving(false);
+    }
+  }
+
+  function sizeLabel(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  const childrenOf = (parentId: string | null) =>
+    folders.filter((folder) => (folder.parentFolderId || null) === parentId);
+
+  function folderPath(folderId: string | null): GeneralFolder[] {
+    const result: GeneralFolder[] = [];
+    let current = folders.find((folder) => folder.id === folderId);
+    const seen = new Set<string>();
+    while (current?.id && !seen.has(current.id)) {
+      result.unshift(current);
+      seen.add(current.id);
+      current = folders.find((folder) => folder.id === current?.parentFolderId);
+    }
+    return result;
+  }
+
+  function folderLabel(folder: GeneralFolder) {
+    return folderPath(folder.id || null).map((item) => item.name).join(" / ");
+  }
+
+  function renderFolderTree(parentId: string | null, depth = 0): ReactNode {
+    return childrenOf(parentId).map((folder) => {
+      const isSelected = selectedFolderId === folder.id;
+      const childFolders = childrenOf(folder.id || null);
+      const count = documents.filter((item) => item.folderId === folder.id).length;
+      return (
+        <div key={folder.id}>
+          <button
+            type="button"
+            onClick={() => setSelectedFolderId(folder.id || null)}
+            className={`mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold ${isSelected ? "bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-card)]"}`}
+            style={{ paddingLeft: `${12 + depth * 18}px` }}
+            title={folder.name}
+          >
+            {childFolders.length > 0 ? <ChevronDown size={14} /> : <span className="w-[14px]" />}
+            <Folder size={15} />
+            <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+            <span className="text-[10px]">{count}</span>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); beginMoveFolder(folder); }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); beginMoveFolder(folder); } }}
+              className="rounded-lg p-1 hover:bg-[var(--bg-elevated)]"
+              title="Move folder"
+            >
+              <Folder size={13} />
+            </span>
+          </button>
+          {renderFolderTree(folder.id || null, depth + 1)}
+        </div>
+      );
+    });
+  }
+
+  const visibleDocuments = selectedFolderId === null
+    ? documents
+    : documents.filter((item) => item.folderId === selectedFolderId);
+  const selectedFolder = folders.find((folder) => folder.id === selectedFolderId);
+  const currentChildren = childrenOf(selectedFolderId);
+  const uploadFolders = [...folders].sort((a, b) => folderLabel(a).localeCompare(folderLabel(b)));
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 sm:p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="font-bold text-[var(--text-primary)]">General Documents</h3>
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">Create folders inside folders, name every document, and keep your personal files organized. Maximum 25 MB per file.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => inputRef.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--accent-pink)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90">
+              <Upload size={16} /> Upload Document
+            </button>
+            <input ref={inputRef} type="file" className="hidden" onChange={(e) => openUpload(e.target.files?.[0] || null)} />
+          </div>
+        </div>
+        {error && <div className="mt-4 rounded-2xl border border-[var(--danger-soft)] bg-[var(--danger-soft)]/30 px-4 py-3 text-xs text-[var(--danger)]">{error}</div>}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3 shadow-sm">
+          <div className="mb-3 flex items-center justify-between px-2">
+            <div className="text-xs font-bold uppercase tracking-wide text-[var(--text-faint)]">Folders</div>
+            <Folder size={15} className="text-[var(--accent-pink)]" />
+          </div>
+          <button type="button" onClick={() => setSelectedFolderId(null)} className={`mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold ${selectedFolderId === null ? "bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-card)]"}`}>
+            <FileCheck size={16} /> All Documents <span className="ml-auto text-[10px]">{documents.length}</span>
+          </button>
+          <div className="max-h-[430px] overflow-y-auto pr-1">
+            {renderFolderTree(null)}
+          </div>
+          <div className="mt-3 border-t border-[var(--border)] pt-3">
+            <p className="mb-2 px-1 text-[10px] text-[var(--text-faint)]">
+              {selectedFolder ? `New folder inside “${selectedFolder.name}”` : "New top-level folder"}
+            </p>
+            <div className="flex gap-2">
+              <input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void addFolder(); }} placeholder={selectedFolder ? "Subfolder name" : "New folder name"} className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent-pink)]" />
+              <button type="button" disabled={creatingFolder || !newFolderName.trim()} onClick={() => void addFolder()} className="rounded-xl bg-[var(--accent-pink)] px-3 text-white disabled:opacity-50" title={selectedFolder ? "Create subfolder" : "Create folder"}><FolderPlus size={16} /></button>
+            </div>
+          </div>
+        </aside>
+
+        <section className="min-w-0">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h4 className="font-bold text-[var(--text-primary)]">{selectedFolder?.name || "All Documents"}</h4>
+              {selectedFolder && folderPath(selectedFolderId).length > 1 && (
+                <p className="mt-0.5 text-[10px] text-[var(--text-faint)]">{folderPath(selectedFolderId).map((item) => item.name).join(" / ")}</p>
+              )}
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">{visibleDocuments.length} document{visibleDocuments.length === 1 ? "" : "s"}{selectedFolder ? ` · ${currentChildren.length} subfolder${currentChildren.length === 1 ? "" : "s"}` : ""}</p>
+            </div>
+            {selectedFolder && (
+              <button type="button" onClick={() => setSelectedFolderId(selectedFolder.parentFolderId || null)} className="inline-flex items-center gap-1 self-start rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-card)]">
+                <ChevronLeft size={14} /> Parent folder
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-8 text-center text-sm text-[var(--text-secondary)]">Loading documents…</div>
+          ) : currentChildren.length === 0 && visibleDocuments.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-[var(--border)] bg-[var(--bg-elevated)] p-10 text-center">
+              <Folder size={30} className="mx-auto text-[var(--accent-pink)]" />
+              <h4 className="mt-3 font-bold text-[var(--text-primary)]">This folder is empty</h4>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">Create a subfolder or upload a document here.</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-sm">
+              {currentChildren.map((folder) => (
+                <div
+                  key={`folder-${folder.id}`}
+                  className="border-b border-[var(--border)] px-3 py-3.5 transition last:border-b-0 hover:bg-[var(--bg-card)] sm:px-4"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFolderId(folder.id || null)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                      title={`Open ${folder.name}`}
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]">
+                        <Folder size={17} />
+                      </div>
+                      <p className="min-w-0 truncate text-sm font-semibold text-[var(--text-primary)]">{folder.name}</p>
+                    </button>
+                    <span className="shrink-0 text-xs text-[var(--text-faint)]">—</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-end gap-1 border-t border-[var(--border)] pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFolderId(folder.id || null)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--bg-elevated)]"
+                    >
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => beginMoveFolder(folder)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--bg-elevated)]"
+                    >
+                      Move
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void removeFolder(folder)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-[var(--danger)] transition hover:bg-[var(--danger-soft)]"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {visibleDocuments.map((item) => (
+                <div
+                  key={`document-${item.id}`}
+                  className="border-b border-[var(--border)] px-3 py-3.5 transition last:border-b-0 hover:bg-[var(--bg-card)] sm:px-4"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-pink-soft)] text-[var(--accent-pink)]">
+                      <FileText size={17} />
+                    </div>
+                    <p className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text-primary)]" title={item.name}>
+                      {item.name}
+                    </p>
+                    <span className="shrink-0 text-xs text-[var(--text-faint)]">{sizeLabel(item.size)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-end gap-1 border-t border-[var(--border)] pt-2">
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--bg-elevated)]"
+                    >
+                      Open
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => beginMoveDocument(item)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--bg-elevated)]"
+                    >
+                      Move
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void remove(item)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-[var(--danger)] transition hover:bg-[var(--danger-soft)]"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      {moveTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !moving && setMoveTarget(null)}>
+          <div className="w-full max-w-md rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-[var(--text-primary)]">Move {moveTarget.kind === "document" ? "Document" : "Folder"}</h3>
+                <p className="mt-1 text-xs text-[var(--text-secondary)] truncate">{moveTarget.item.name}</p>
+              </div>
+              <button type="button" disabled={moving} onClick={() => setMoveTarget(null)}><X size={18} className="text-[var(--text-faint)]" /></button>
+            </div>
+            <div className="mt-5 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[var(--text-secondary)]">MOVE TO</label>
+                <GeneralFolderPicker
+                  value={moveDestinationId}
+                  folders={folders.filter((folder) => {
+                    if (moveTarget.kind !== "folder") return true;
+                    const blocked = descendantsOf(moveTarget.item.id!);
+                    return folder.id !== moveTarget.item.id && !blocked.has(folder.id || "");
+                  })}
+                  getLabel={folderLabel}
+                  onChange={setMoveDestinationId}
+                  rootLabel="All Documents / Root"
+                  disabled={moving}
+                />
+                <p className="text-[10px] text-[var(--text-faint)]">Choose the root to move outside all folders, or any folder to move inside it.</p>
+              </div>
+              <div className="flex gap-3">
+                <button type="button" disabled={moving} onClick={() => setMoveTarget(null)} className="flex-1 rounded-xl border border-[var(--border)] py-2.5 text-sm font-semibold text-[var(--text-secondary)]">Cancel</button>
+                <button type="button" disabled={moving} onClick={() => void confirmMove()} className="flex-1 rounded-xl bg-[var(--accent-pink)] py-2.5 text-sm font-semibold text-white disabled:opacity-50">{moving ? "Moving…" : "Move"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {uploadFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !uploading && closeUpload()}>
+          <div className="w-full max-w-md rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div><h3 className="font-bold text-[var(--text-primary)]">Upload Document</h3><p className="mt-1 text-xs text-[var(--text-secondary)]">Give this document a name and choose where to save it.</p></div>
+              <button type="button" disabled={uploading} onClick={closeUpload}><X size={18} className="text-[var(--text-faint)]" /></button>
+            </div>
+            <div className="mt-5 space-y-4">
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-3"><p className="truncate text-xs font-semibold text-[var(--text-primary)]">{uploadFile.name}</p><p className="mt-1 text-[10px] text-[var(--text-faint)]">{sizeLabel(uploadFile.size)}</p></div>
+              <div className="space-y-1.5"><label className="text-xs font-semibold text-[var(--text-secondary)]">DOCUMENT NAME *</label><input autoFocus value={documentName} onChange={(e) => setDocumentName(e.target.value)} placeholder="e.g. Passport, Insurance Policy" className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-pink)]" /></div>
+              <div className="space-y-1.5"><label className="text-xs font-semibold text-[var(--text-secondary)]">FOLDER</label><GeneralFolderPicker value={uploadFolderId} folders={uploadFolders} getLabel={folderLabel} onChange={setUploadFolderId} rootLabel="Unsorted" disabled={uploading} /></div>
+              {uploading && <div><div className="mb-1 flex justify-between text-[10px] text-[var(--text-secondary)]"><span>Uploading…</span><span>{progress}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[var(--border)]"><div className="h-full rounded-full bg-[var(--accent-pink)] transition-all" style={{ width: `${progress}%` }} /></div></div>}
+              <div className="flex gap-3"><button type="button" disabled={uploading} onClick={closeUpload} className="flex-1 rounded-xl border border-[var(--border)] py-2.5 text-sm font-semibold text-[var(--text-secondary)] disabled:opacity-50">Cancel</button><button type="button" disabled={uploading || !documentName.trim()} onClick={() => void confirmUpload()} className="flex-1 rounded-xl bg-[var(--accent-pink)] py-2.5 text-sm font-semibold text-white disabled:opacity-50">{uploading ? "Uploading…" : "Upload"}</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 function HealthFlowchart({
   checkups,
   issues,
@@ -800,6 +1341,18 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
           <FileText size={15} />
           Medical Reports
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("general")}
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition ${
+            activeTab === "general"
+              ? "bg-[var(--accent-pink)] text-white shadow-sm"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          }`}
+        >
+          <FileCheck size={15} />
+          General Documents
+        </button>
       </div>
 
       {/* Tab content */}
@@ -900,6 +1453,7 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
       )}
 
       {activeTab === "medical" && <MedicalReportTab userId={userId} />}
+      {activeTab === "general" && <GeneralDocumentsTab userId={userId} />}
 
       {/* Sign out */}
       {onSignOut && (
