@@ -4,8 +4,50 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function isOwner(userId) {
-      return request.auth != null
-        && request.auth.uid == userId;
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Public profile data used for people search. Never store medical/private
+    // information here.
+    match /publicProfiles/{userId} {
+      allow read: if request.auth != null;
+      allow create, update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    match /usernames/{username} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.uid == request.auth.uid;
+    }
+
+    // Friend requests are controlled by sender/receiver and valid state changes.
+    match /friendRequests/{requestId} {
+      allow read: if request.auth != null
+        && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      allow create: if request.auth != null
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.receiverId != request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if request.auth != null && (
+        (resource.data.receiverId == request.auth.uid
+          && resource.data.status == 'pending'
+          && request.resource.data.senderId == resource.data.senderId
+          && request.resource.data.receiverId == resource.data.receiverId
+          && request.resource.data.status in ['accepted', 'declined'])
+        ||
+        (resource.data.senderId == request.auth.uid
+          && resource.data.status == 'pending'
+          && request.resource.data.senderId == resource.data.senderId
+          && request.resource.data.receiverId == resource.data.receiverId
+          && request.resource.data.status == 'cancelled')
+      );
+      allow delete: if false;
     }
 
     match /users/{userId} {
@@ -14,39 +56,43 @@ service cloud.firestore {
       match /routines/{routineId} {
         allow read, write: if isOwner(userId);
       }
-
       match /routineLogs/{logId} {
         allow read, write: if isOwner(userId);
       }
-
       match /profile/{docId} {
         allow read, write: if isOwner(userId);
       }
-
       match /analyticsCards/{cardId} {
         allow read, write: if isOwner(userId);
       }
-
       match /medicalReports/{reportId} {
         allow read, write: if isOwner(userId);
       }
-
       match /healthCheckups/{checkupId} {
         allow read, write: if isOwner(userId);
       }
-
       match /healthIssues/{issueId} {
         allow read, write: if isOwner(userId);
       }
-
-      // General Documents
       match /generalDocuments/{documentId} {
         allow read, write: if isOwner(userId);
       }
-
-      // General Document Folders
       match /generalDocumentFolders/{folderId} {
         allow read, write: if isOwner(userId);
+      }
+
+      match /friends/{friendId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.resource.data.userId == friendId
+          && request.resource.data.requestId is string
+          && getAfter(/databases/$(database)/documents/friendRequests/$(request.resource.data.requestId)).data.status == 'accepted'
+          && (
+            getAfter(/databases/$(database)/documents/friendRequests/$(request.resource.data.requestId)).data.senderId == userId
+            || getAfter(/databases/$(database)/documents/friendRequests/$(request.resource.data.requestId)).data.receiverId == userId
+          );
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
       }
     }
   }

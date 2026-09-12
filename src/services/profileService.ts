@@ -10,6 +10,7 @@ import { db } from "../lib/firebase";
 export interface FitnessProfile {
   // Personal info
   name: string;
+  username?: string;
   dateOfBirth: string; // YYYY-MM-DD
   gender: "male" | "female" | "other" | "";
   // Body metrics
@@ -103,4 +104,14 @@ export async function saveProfile(
     updatedAt: serverTimestamp(),
     createdAt: profile.createdAt ?? serverTimestamp(),
   });
+
+  if (profile.username) {
+    await setDoc(doc(db, "publicProfiles", userId), {
+      uid: userId,
+      username: profile.username,
+      displayName: profile.name?.trim() || "AimeSig User",
+      displayNameLower: (profile.name?.trim() || "AimeSig User").toLowerCase(),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  }
 }

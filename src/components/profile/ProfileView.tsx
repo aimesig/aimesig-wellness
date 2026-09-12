@@ -27,6 +27,8 @@ import {
   ChevronDown,
   CalendarDays,
   CircleDot,
+  AtSign,
+  CheckCircle2,
   Folder,
   FolderPlus,
 } from "lucide-react";
@@ -41,6 +43,7 @@ import {
   type FitnessProfile,
 } from "../../services/profileService";
 import { getWeightRoutine, getWeightEntries } from "../../services/weightService";
+import { claimUsername, getUsername, suggestUniqueUsername } from "../../services/usernameService";
 import {
   subscribeHealthCheckups,
   subscribeHealthIssues,
@@ -1031,6 +1034,11 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
   const [error, setError]               = useState("");
   const [success, setSuccess]           = useState(false);
   const [activeTab, setActiveTab]       = useState<ProfileTab>("profile");
+  const [username, setUsername] = useState("");
+  const [usernameInput, setUsernameInput] = useState("");
+  const [usernameSaving, setUsernameSaving] = useState(false);
+  const [usernameError, setUsernameError] = useState("");
+  const [usernameSuccess, setUsernameSuccess] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1057,6 +1065,27 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
     void load();
     return () => { cancelled = true; };
   }, [userId, userName]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadUsername() {
+      try {
+        const existing = await getUsername(userId);
+        if (cancelled) return;
+        if (existing) {
+          setUsername(existing);
+          setUsernameInput(existing);
+        } else {
+          const suggested = await suggestUniqueUsername(userId, profile?.name || userName);
+          if (!cancelled) setUsernameInput(suggested);
+        }
+      } catch {
+        // Username setup is non-critical to profile loading.
+      }
+    }
+    void loadUsername();
+    return () => { cancelled = true; };
+  }, [userId, userName, profile?.name]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1090,6 +1119,26 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
       setError("Failed to save profile. Please try again.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleUsernameSave() {
+    const next = usernameInput.trim().replace(/^@/, "").toLowerCase();
+    setUsernameError("");
+    setUsernameSuccess(false);
+    setUsernameSaving(true);
+    try {
+      const claimed = await claimUsername(userId, next, username || null);
+      setUsername(claimed);
+      setUsernameInput(claimed);
+      setProfile((p) => p ? { ...p, username: claimed } : p);
+      setDraft((d) => ({ ...d, username: claimed }));
+      setUsernameSuccess(true);
+      window.setTimeout(() => setUsernameSuccess(false), 2500);
+    } catch (err: any) {
+      setUsernameError(err?.message || "Unable to save username.");
+    } finally {
+      setUsernameSaving(false);
     }
   }
 
@@ -1174,6 +1223,42 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
         </div>
 
         <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-sm">
+          {/* Username */}
+          <div className="mb-6 rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <AtSign size={17} className="text-[var(--accent-pink)]" />
+              <div>
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Username</h3>
+                <p className="text-[10px] text-[var(--text-secondary)]">Your unique public username, like Instagram.</p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative min-w-0 flex-1">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[var(--text-faint)]">@</span>
+                <input
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, "").slice(0, 30))}
+                  placeholder="yourusername"
+                  maxLength={30}
+                  className={`${inputCls} pl-8`}
+                  aria-label="Username"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleUsernameSave()}
+                disabled={usernameSaving || !usernameInput.trim() || usernameInput.trim().replace(/^@/, "").toLowerCase() === username}
+                className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[var(--accent-pink)] px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+              >
+                {usernameSaving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+                {usernameSaving ? "Saving…" : "Save Username"}
+              </button>
+            </div>
+            <p className="mt-2 text-[10px] text-[var(--text-faint)]">3–30 characters: letters, numbers, dots and underscores.</p>
+            {usernameError && <p className="mt-2 text-xs font-medium text-[var(--danger)]">{usernameError}</p>}
+            {usernameSuccess && <p className="mt-2 text-xs font-medium text-[var(--success)]">Username saved: @{username}</p>}
+          </div>
+
           {step === "personal"  && <StepPersonal  draft={draft} update={update} />}
           {step === "body"      && <StepBody      draft={draft} update={update} />}
           {step === "goals"     && <StepGoals     draft={draft} update={update} />}
@@ -1292,6 +1377,10 @@ export function ProfileView({ userId, userName, onNameChange, onSignOut }: Profi
             </div>
             <div>
               <h2 className="text-xl font-bold text-[var(--text-primary)]">{profile.name || userName}</h2>
+              <div className="mt-1 flex items-center gap-1.5 text-sm text-[var(--accent-pink)]">
+                <AtSign size={14} />
+                <span className="font-semibold">{username || "Choose a username"}</span>
+              </div>
               {age && (
                 <p className="text-sm text-[var(--text-secondary)] capitalize">
                   {age} yrs · {profile.gender || "—"} · {profile.activityLevel?.replace(/_/g, " ") || "—"}

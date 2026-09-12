@@ -3,6 +3,7 @@ import {
   BarChart3,
   CalendarDays,
   MessageCircle,
+  Users,
   Check,
   Flame,
   Home,
@@ -28,6 +29,7 @@ import { RoutineManager } from "./components/routines/RoutineManager";
 import { ImageLightbox } from "./components/ui/ImageLightbox";
 import { RoutineAnalytics } from "./components/analytics/RoutineAnalytics";
 import { ChatbotView } from "./components/analytics/ChatbotView";
+import { PeopleView } from "./components/social/PeopleView";
 
 import type { Routine, RoutineLog, RoutineStatus } from "./types/routine";
 import { getRoutines } from "./services/routineService";
@@ -40,6 +42,7 @@ import {
 import { getRoutinesForDate } from "./utils/recurrence";
 import { getStreakData } from "./services/streakService";
 import { getProfile } from "./services/profileService";
+import { ensureUniqueUsername } from "./services/usernameService";
 import { getUserTheme, saveUserTheme } from "./services/themeService";
 import aimesigLogo from "./assets/aimesig-logo.png";
 
@@ -76,6 +79,15 @@ function App() {
 
 function AuthenticatedApplication() {
   const { user, loading } = useAuth();
+
+  useEffect(() => {
+    if (!user) return;
+    const seed = user.displayName?.trim() || user.email?.split("@")[0] || "user";
+    void ensureUniqueUsername(user.uid, seed).catch(() => {
+      // Username setup should never prevent the app from loading.
+    });
+  }, [user]);
+
   if (loading) return <LoadingScreen />;
   if (!user) return <AuthScreen />;
   return <WellnessDashboard userName={getDisplayName(user.email)} userId={user.uid} />;
@@ -94,12 +106,13 @@ function LoadingScreen() {
 
 // ─── nav ───────────────────────────────────────────────────────────────────
 
-type NavTab = "Home" | "My Routines" | "Chatbot" | "Calendar" | "Analytics" | "Profile";
+type NavTab = "Home" | "My Routines" | "Chatbot" | "People" | "Calendar" | "Analytics" | "Profile";
 
 const NAV: { label: NavTab; icon: typeof Home }[] = [
   { label: "Home",        icon: Home        },
   { label: "My Routines", icon: BookOpen    },
   { label: "Chatbot",     icon: MessageCircle },
+  { label: "People",      icon: Users          },
   { label: "Calendar",    icon: CalendarDays},
   { label: "Analytics",   icon: BarChart3   },
 ];
@@ -168,6 +181,13 @@ function WellnessDashboard({ userName, userId }: { userName: string; userId: str
           <>
             <PageHeader title="Chatbot" subtitle="Private AI for your routines and health records" />
             <ChatbotView userId={userId} />
+          </>
+        );
+      case "People":
+        return (
+          <>
+            <PageHeader title="People" subtitle="Find people, manage friend requests and view friends" />
+            <PeopleView userId={userId} />
           </>
         );
       case "Calendar":
